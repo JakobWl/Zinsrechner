@@ -18,6 +18,12 @@ contextBridge.exposeInMainWorld('ipcRenderer', {
     const [channel, ...omit] = args
     return ipcRenderer.invoke(channel, ...omit)
   },
+  loadData: async (): Promise<string> => {
+    return await ipcRenderer.invoke('load-data');
+  },
+  saveData: (data: string) => {
+    ipcRenderer.send('save-data', data);
+  },
 
   // You can expose other APTs you need here.
   // ...
