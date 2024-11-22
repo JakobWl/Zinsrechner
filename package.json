@@ -13,21 +13,21 @@
   },
   "devDependencies": {
     "@electron-forge/cli": "^7.5.0",
-    "@electron-forge/maker-deb": "^7.5.0",
-    "@electron-forge/maker-rpm": "^7.5.0",
     "@electron-forge/maker-squirrel": "^7.5.0",
     "@electron-forge/maker-zip": "^7.5.0",
     "@electron-forge/plugin-auto-unpack-natives": "^7.5.0",
     "@electron-forge/plugin-fuses": "^7.5.0",
     "@electron-forge/plugin-vite": "^7.5.0",
     "@electron/fuses": "^1.8.0",
-    "@typescript-eslint/eslint-plugin": "^5.62.0",
-    "@typescript-eslint/parser": "^5.62.0",
+    "@typescript-eslint/eslint-plugin": "^8.15.0",
+    "@typescript-eslint/parser": "^8.15.0",
     "electron": "33.2.0",
-    "eslint": "^8.57.1",
+    "electron-builder": "^25.1.8",
+    "electron-forge-maker-nsis": "^25.1.8",
+    "eslint": "^9.15.0",
     "eslint-plugin-import": "^2.31.0",
     "ts-node": "^10.9.2",
-    "typescript": "~4.5.4",
+    "typescript": "~5.7.2",
     "vite": "^5.4.11"
   },
   "keywords": [],
@@ -35,8 +35,5 @@
     "name": "Jakob Winkler",
     "email": "jakob545@gmail.com"
   },
-  "license": "MIT",
-  "dependencies": {
-    "electron-squirrel-startup": "^1.0.1"
-  }
+  "license": "MIT"
 }
