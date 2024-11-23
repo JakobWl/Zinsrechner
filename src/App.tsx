@@ -1,5 +1,4 @@
 import {useState, useEffect} from 'react';
-import './App.css';
 import {Button, Input, DatePicker, Table, Card, Form, Typography, Row, Col} from 'antd';
 import type {DatePickerProps} from 'antd';
 import dayjs, {Dayjs} from 'dayjs';
@@ -22,7 +21,6 @@ function App() {
     const [zinssatz, setZinssatz] = useState('');
     const [nominal, setNominal] = useState('');
     const [quartalsDatum, setQuartalsDatum] = useState<Dayjs | null>(null);
-
 
     useEffect(() => {
         // Load data from JSON file on mount using the exposed preload functions
@@ -107,6 +105,64 @@ function App() {
         setQuartalsDatum(date ? dayjs(date) : null);
     };
 
+    const handlePrint = () => {
+        // Use the preload script to create a print window in Electron
+        window.ipcRenderer.send('create-print-window', {
+            content: `
+                <html lang="de">
+                    <head>
+                        <title>Konten Übersicht</title>
+                        <style>
+                            table {
+                                width: 100%;
+                                border-collapse: collapse;
+                            }
+                            table, th, td {
+                                border: 1px solid black;
+                            }
+                            th, td {
+                                padding: 8px;
+                                text-align: left;
+                            }
+                        </style>
+                    </head>
+                    <body>
+                        <h1>Konten Übersicht</h1>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Bank Name</th>
+                                    <th>Konto Nummer</th>
+                                    <th>Startdatum</th>
+                                    <th>Enddatum</th>
+                                    <th>Monate Zwischen</th>
+                                    <th>Zinssatz (%)</th>
+                                    <th>Nominal (€)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${data.map((entry) => {
+                const monthsBetween = entry.endDatum.diff(entry.startDatum, 'month');
+                return `
+                                        <tr>
+                                            <td>${entry.bankName}</td>
+                                            <td>${entry.kontoNumber}</td>
+                                            <td>${entry.startDatum.format('DD.MM.YYYY')}</td>
+                                            <td>${entry.endDatum.format('DD.MM.YYYY')}</td>
+                                            <td>${monthsBetween}</td>
+                                            <td>${entry.zinssatz}</td>
+                                            <td>${entry.nominal}</td>
+                                        </tr>
+                                    `;
+            }).join('')}
+                            </tbody>
+                        </table>
+                    </body>
+                </html>
+            `,
+        });
+    };
+
     return (
         <div className="layout">
             <Row>
@@ -141,8 +197,8 @@ function App() {
                 <Col span={18}>
                     <Card style={{margin: '15px 15px 15px 0'}}>
                         <Row>
-                            <Form layout="horizontal">
-                                <Form.Item label="Quartalsdatum">
+                            <Form layout="horizontal" style={{display: 'flex', alignItems: 'center'}}>
+                                <Form.Item style={{marginBottom: 0}} label="Quartalsdatum">
                                     <DatePicker value={quartalsDatum ? quartalsDatum : undefined}
                                                 onChange={handleQuartalsDateChange} format="DD.MM.YYYY"/>
                                 </Form.Item>
@@ -158,21 +214,35 @@ function App() {
                     </Card>
 
                     <Card style={{margin: '15px 15px 15px 0'}}>
-                        <Table dataSource={data} rowKey={(record) => record.kontoNumber} pagination={false}>
-                            <Table.Column title="Bank Name" dataIndex="bankName" key="bankName"/>
-                            <Table.Column title="Konto Number" dataIndex="kontoNumber" key="kontoNumber"/>
-                            <Table.Column title="Startdatum" dataIndex="startDatum" key="startDatum"
+                        <Button type="default" onClick={handlePrint} style={{margin: '15px'}}>Tabelle
+                            Drucken</Button>
+                        <Table
+                            dataSource={data}
+                            rowKey={(record) => record.kontoNumber}
+                            pagination={false}
+                            scroll={{x: 'max-content', y: 55 * 5}}
+                            rowClassName={(record) => {
+                                const now = dayjs();
+                                return record.endDatum.isBefore(now.add(1, 'month')) ? 'row-warning' : '';
+                            }}
+                        >
+                            <Table.Column title="Bank Name"
+                                          width={120} dataIndex="bankName" key="bankName" fixed={'left'}/>
+                            <Table.Column title="Konto Number" width={220} dataIndex="kontoNumber" fixed={'left'}
+                                          key="kontoNumber"/>
+                            <Table.Column width={120} title="Startdatum" dataIndex="startDatum" key="startDatum"
                                           render={(date: Dayjs) => date.format('DD.MM.YYYY')}/>
-                            <Table.Column title="Enddatum" dataIndex="endDatum" key="endDatum"
+                            <Table.Column width={120} title="Enddatum" dataIndex="endDatum" key="endDatum"
                                           render={(date: Dayjs) => date.format('DD.MM.YYYY')}/>
-                            <Table.Column title="Zinssatz (%)" dataIndex="zinssatz" key="zinssatz"/>
-                            <Table.Column title="Nominal (€)" dataIndex="nominal" key="nominal"/>
-                            <Table.Column
-                                title="Aktionen"
-                                key="aktionen"
-                                render={(_, __, index: number) => (
-                                    <Button danger onClick={() => handleDeleteKonto(index)}>Löschen</Button>
-                                )}
+                            <Table.Column title="Zinssatz (%)" width={120} dataIndex="zinssatz" key="zinssatz"/>
+                            <Table.Column width={120} title="Nominal (€)" dataIndex="nominal" key="nominal"/>
+                            <Table.Column fixed={'right'}
+                                          width={80}
+                                          title="Aktionen"
+                                          key="aktionen"
+                                          render={(_, __, index: number) => (
+                                              <Button danger onClick={() => handleDeleteKonto(index)}>Löschen</Button>
+                                          )}
                             />
                         </Table>
                     </Card>

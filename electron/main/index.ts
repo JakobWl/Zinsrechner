@@ -113,8 +113,48 @@ ipcMain.on('save-data', (event, data) => {
     } catch (error) {
         console.error('Error saving data:', error);
     }
-});
+})
 
+ipcMain.on('create-print-window', (event, data) => {
+    let printWindow = new BrowserWindow({
+        width: 800,
+        height: 600,
+        show: false,
+        webPreferences: {
+            nodeIntegration: true,
+            contextIsolation: false,
+        },
+    });
+
+    // Load the HTML content provided by the renderer process
+    printWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(data.content));
+
+    const printOptions = {
+        silent: false,
+        printBackground: true,
+        color: true,
+        margin: {
+            marginType: 'printableArea',
+        },
+        landscape: false,
+        pagesPerSheet: 1,
+        collate: false,
+        copies: 1,
+        header: 'Page header',
+        footer: 'Page footer',
+    };
+
+    // Wait until the content is loaded, then print
+    printWindow.webContents.on('did-finish-load', () => {
+        printWindow.webContents.print(printOptions, (success, failureReason) => {
+            if (!success) {
+                console.error('Print failed:', failureReason);
+            }
+            // Close the print window after printing
+            printWindow.close();
+        });
+    });
+});
 
 // New window example arg: new windows url
 ipcMain.handle('open-win', (_, arg) => {
