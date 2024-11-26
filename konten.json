@@ -14,5 +14,13 @@
     "endDatum": "2024-11-28T23:00:00.000Z",
     "zinssatz": 1,
     "nominal": 21
+  },
+  {
+    "bankName": "test2",
+    "kontoNumber": "123",
+    "startDatum": "2024-11-03T23:00:00.000Z",
+    "endDatum": "2024-12-27T23:00:00.000Z",
+    "zinssatz": 1,
+    "nominal": 1234
   }
 ]

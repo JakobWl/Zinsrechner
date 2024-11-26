@@ -25,14 +25,19 @@ body,
 }
 
 .row-warning {
-  background-color: var(--ant-color-error-bg-hover); /* Apply theme color for the fixed cells */
+  background-color: var(--ant-color-error-bg-hover);
 }
 
 .row-warning .ant-table-cell-fix-left {
-  background-color: var(--ant-color-error-bg-hover); /* Apply theme color for the fixed cells */
+  background-color: var(--ant-color-error-bg-hover);
 }
 
 .row-warning .ant-table-cell-fix-right {
-  background-color: var(--ant-color-error-bg-hover); /* Apply theme color for the fixed cells */
+  background-color: var(--ant-color-error-bg-hover);
 }
 
+@media (max-width: 800px) {
+  .layout {
+    flex-flow: column;
+  }
+}

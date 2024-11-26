@@ -119,7 +119,7 @@ ipcMain.on("create-print-window", (event, data) => {
   let printWindow = new BrowserWindow({
     width: 800,
     height: 600,
-    show: false,
+    show: true,
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,

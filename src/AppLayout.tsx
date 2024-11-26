@@ -206,12 +206,12 @@ export function AppLayout({
                             ${
                               isNewGroup
                                 ? `<div class="bank-group">
-                    <div class="bank-title">${entry.bankName}</div>
-                    <table>
-                    <thead><tr>
-                    <th>Konto Nummer</th><th>Startdatum</th>
-                    <th>Enddatum</th><th>Monate Zwischen</th>
-                    <th>Zinssatz (%)</th><th>Nominal (€)</th></tr></thead><tbody>`
+                                    <div class="bank-title">${entry.bankName}</div>
+                                    <table>
+                                    <thead><tr>
+                                    <th>Konto Nummer</th><th>Startdatum</th>
+                                    <th>Enddatum</th><th>Monate</th>
+                                    <th>Zinssatz (%)</th><th>Nominal (€)</th></tr></thead><tbody>`
                                 : ""
                             }
                             <tr>
@@ -234,7 +234,7 @@ export function AppLayout({
 
   return (
     <Layout className="layout">
-      <div style={{ minWidth: 300 }}>
+      <div style={{ minWidth: 350, width: "100%", flex: 1 }}>
         <Card style={{ margin: 15 }}>
           <Form layout="vertical" onFinish={handleAddKonto}>
             <Form.Item
@@ -337,7 +337,7 @@ export function AppLayout({
           </Form>
         </Card>
       </div>
-      <div style={{ width: "100%" }}>
+      <div style={{ minWidth: 350, width: "100%", flex: 2 }}>
         <Card style={{ margin: "15px 15px 15px 0" }}>
           <Row>
             <Form
