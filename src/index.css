@@ -1,8 +1,0 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
-html, body, #root, .layout {
-  margin: 0;
-  height: 100%;
-}

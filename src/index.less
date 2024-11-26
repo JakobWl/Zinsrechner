@@ -1,0 +1,38 @@
+html,
+body,
+#root,
+.layout {
+  margin: 0;
+  height: 100%;
+  scrollbar-width: thin;
+}
+
+.layout {
+  display: flex;
+  flex-flow: row;
+}
+
+.table {
+  .ant-table {
+    .ant-table-container {
+      .ant-table-body,
+      .ant-table-content {
+        scrollbar-width: thin;
+        scrollbar-gutter: stable;
+      }
+    }
+  }
+}
+
+.row-warning {
+  background-color: var(--ant-color-error-bg-hover); /* Apply theme color for the fixed cells */
+}
+
+.row-warning .ant-table-cell-fix-left {
+  background-color: var(--ant-color-error-bg-hover); /* Apply theme color for the fixed cells */
+}
+
+.row-warning .ant-table-cell-fix-right {
+  background-color: var(--ant-color-error-bg-hover); /* Apply theme color for the fixed cells */
+}
+

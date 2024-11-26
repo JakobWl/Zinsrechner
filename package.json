@@ -18,7 +18,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@ant-design/icons": "^5.5.1",
     "antd": "^5.22.2",
+    "antd-style": "^3.7.1",
     "dayjs": "^1.11.13",
     "electron-updater": "^6.3.9"
   },
@@ -29,11 +31,13 @@
     "@vitejs/plugin-react": "^4.3.3",
     "electron": "^33.2.0",
     "electron-builder": "^25.1.8",
+    "electron-builder-squirrel-windows": "^25.1.8",
+    "less": "^4.2.1",
+    "prettier": "^3.3.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "typescript": "^5.7.2",
     "vite": "^5.4.11",
-    "electron-builder-squirrel-windows": "^25.1.8",
     "vite-plugin-electron": "^0.29.0",
     "vite-plugin-electron-renderer": "^0.14.6"
   }
