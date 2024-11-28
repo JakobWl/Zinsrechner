@@ -1,6 +1,6 @@
 {
-  "name": "electron-vite-react",
-  "version": "1.0.1",
+  "name": "zinsrechner",
+  "version": "1.0.2",
   "main": "dist-electron/main/index.js",
   "description": "BBG Zinsrechner.",
   "author": "Jakob Winkler",
@@ -13,9 +13,11 @@
   },
   "type": "module",
   "scripts": {
-    "start": "vite",
+    "dev": "vite",
     "build": "tsc && vite build && electron-builder",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "pretest": "vite build --mode=test",
+    "test": "vitest run"
   },
   "dependencies": {
     "@ant-design/icons": "^5.5.1",

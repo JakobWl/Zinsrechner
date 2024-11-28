@@ -37,13 +37,9 @@ export function AppLayout({
     token: { colorErrorBgHover },
   } = theme.useToken();
   const [data, setData] = useState<KontoData[]>([]);
-  const [bankName, setBankName] = useState("");
-  const [kontoNumber, setKontoNumber] = useState("");
-  const [startDatum, setStartDatum] = useState<Dayjs | null>(null);
-  const [endDatum, setEndDatum] = useState<Dayjs | null>(null);
-  const [zinssatz, setZinssatz] = useState("");
-  const [nominal, setNominal] = useState("");
-  const [quartalsDatum, setQuartalsDatum] = useState<Dayjs | null>(null);
+  const [quartalsBeginn, setQuartalsBeginn] = useState<Dayjs | null>(null);
+  const [quartalsEnde, setQuartalsEnde] = useState<Dayjs | null>(null);
+  const [form] = Form.useForm();
 
   useEffect(() => {
     // Load data from JSON file on mount using the exposed preload functions
@@ -66,37 +62,24 @@ export function AppLayout({
   }, []);
 
   useEffect(() => {
-    // Save data to JSON file whenever data changes using the exposed preload functions, after initial load
     if (data.length > 0) {
       window.ipcRenderer.send("save-data", JSON.stringify(data, null, 2));
     }
   }, [data]);
 
-  const handleAddKonto = () => {
-    if (
-      bankName &&
-      kontoNumber &&
-      startDatum &&
-      endDatum &&
-      zinssatz &&
-      nominal
-    ) {
-      const newKonto: KontoData = {
-        bankName,
-        kontoNumber,
-        startDatum,
-        endDatum,
-        zinssatz: parseFloat(zinssatz),
-        nominal: parseFloat(nominal),
-      };
-      setData([...data, newKonto]);
-      setBankName("");
-      setKontoNumber("");
-      setStartDatum(null);
-      setEndDatum(null);
-      setZinssatz("");
-      setNominal("");
-    }
+  const handleAddKonto = (values: any) => {
+    const { bankName, kontoNumber, startDatum, endDatum, zinssatz, nominal } =
+      values;
+    const newKonto: KontoData = {
+      bankName,
+      kontoNumber,
+      startDatum,
+      endDatum,
+      zinssatz: parseFloat(zinssatz),
+      nominal: parseFloat(nominal),
+    };
+    setData([...data, newKonto]);
+    form.resetFields();
   };
 
   const handleDeleteKonto = (index: number) => {
@@ -114,10 +97,10 @@ export function AppLayout({
   };
 
   const calculateQuarterlyInterest = () => {
-    if (!quartalsDatum) return 0;
+    if (!quartalsBeginn || !quartalsEnde) return 0;
     return data.reduce((total, entry) => {
-      if (quartalsDatum.isAfter(entry.startDatum)) {
-        const days = quartalsDatum.diff(entry.startDatum, "day");
+      if (quartalsBeginn.isAfter(entry.startDatum)) {
+        const days = quartalsEnde.diff(quartalsBeginn, "day");
         const interest = entry.nominal * (entry.zinssatz / 100) * (days / 365);
         return total + interest;
       }
@@ -125,16 +108,12 @@ export function AppLayout({
     }, 0);
   };
 
-  const handleStartDateChange: DatePickerProps["onChange"] = (date) => {
-    setStartDatum(date ? dayjs(date) : null);
+  const handleQuartalsBeginnChange: DatePickerProps["onChange"] = (date) => {
+    setQuartalsBeginn(date ? dayjs(date) : null);
   };
 
-  const handleEndDateChange: DatePickerProps["onChange"] = (date) => {
-    setEndDatum(date ? dayjs(date) : null);
-  };
-
-  const handleQuartalsDateChange: DatePickerProps["onChange"] = (date) => {
-    setQuartalsDatum(date ? dayjs(date) : null);
+  const handleQuartalsEndeChange: DatePickerProps["onChange"] = (date) => {
+    setQuartalsEnde(date ? dayjs(date) : null);
   };
 
   const handlePrint = () => {
@@ -236,7 +215,7 @@ export function AppLayout({
     <Layout className="layout">
       <div style={{ minWidth: 350, width: "100%", flex: 1 }}>
         <Card style={{ margin: 15 }}>
-          <Form layout="vertical" onFinish={handleAddKonto}>
+          <Form form={form} layout="vertical" onFinish={handleAddKonto}>
             <Form.Item
               label="Bank Name"
               name="bankName"
@@ -247,10 +226,7 @@ export function AppLayout({
                 },
               ]}
             >
-              <Input
-                value={bankName}
-                onChange={(e) => setBankName(e.target.value)}
-              />
+              <Input />
             </Form.Item>
             <Form.Item
               label="Konto Nummer"
@@ -262,10 +238,7 @@ export function AppLayout({
                 },
               ]}
             >
-              <Input
-                value={kontoNumber}
-                onChange={(e) => setKontoNumber(e.target.value)}
-              />
+              <Input />
             </Form.Item>
             <Form.Item
               label="Startdatum"
@@ -277,11 +250,7 @@ export function AppLayout({
                 },
               ]}
             >
-              <DatePicker
-                value={startDatum ? startDatum : undefined}
-                onChange={handleStartDateChange}
-                format="DD.MM.YYYY"
-              />
+              <DatePicker format="DD.MM.YYYY" />
             </Form.Item>
             <Form.Item
               label="Enddatum"
@@ -293,11 +262,7 @@ export function AppLayout({
                 },
               ]}
             >
-              <DatePicker
-                value={endDatum ? endDatum : undefined}
-                onChange={handleEndDateChange}
-                format="DD.MM.YYYY"
-              />
+              <DatePicker format="DD.MM.YYYY" />
             </Form.Item>
             <Form.Item
               label="Zinssatz (%)"
@@ -309,11 +274,7 @@ export function AppLayout({
                 },
               ]}
             >
-              <Input
-                value={zinssatz}
-                onChange={(e) => setZinssatz(e.target.value)}
-                type="number"
-              />
+              <Input type="number" />
             </Form.Item>
             <Form.Item
               label="Nominal (€)"
@@ -325,11 +286,7 @@ export function AppLayout({
                 },
               ]}
             >
-              <Input
-                value={nominal}
-                onChange={(e) => setNominal(e.target.value)}
-                type="number"
-              />
+              <Input type="number" />
             </Form.Item>
             <Button type="primary" htmlType="submit">
               Hinzufügen
@@ -344,10 +301,20 @@ export function AppLayout({
               layout="horizontal"
               style={{ display: "flex", alignItems: "center" }}
             >
-              <Form.Item style={{ marginBottom: 0 }} label="Quartalsdatum">
+              <Form.Item style={{ marginBottom: 0 }} label="Quartalsbeginn">
                 <DatePicker
-                  value={quartalsDatum ? quartalsDatum : undefined}
-                  onChange={handleQuartalsDateChange}
+                  value={quartalsBeginn ? quartalsBeginn : undefined}
+                  onChange={handleQuartalsBeginnChange}
+                  format="DD.MM.YYYY"
+                />
+              </Form.Item>
+              <Form.Item
+                style={{ marginBottom: 0, marginLeft: 10 }}
+                label="Quartalsende"
+              >
+                <DatePicker
+                  value={quartalsEnde ? quartalsEnde : undefined}
+                  onChange={handleQuartalsEndeChange}
                   format="DD.MM.YYYY"
                 />
               </Form.Item>
@@ -386,7 +353,7 @@ export function AppLayout({
           <Table
             className="table"
             dataSource={data}
-            rowKey={(record) => record.kontoNumber}
+            rowKey={(record) => record.bankName + record.kontoNumber}
             pagination={false}
             scroll={{ x: "max-content" }}
             rowClassName={(record) => {
