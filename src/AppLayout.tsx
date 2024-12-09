@@ -118,10 +118,10 @@ export function AppLayout({
 
   const calculateQuarterlySingleInterest = (entry: KontoData) => {
     if (!quartalsBeginn || !quartalsEnde) return 0;
-    if (quartalsBeginn.isAfter(entry.startDatum)) {
-      return calculateInterest(entry, quartalsBeginn, quartalsEnde);
+    if (quartalsBeginn.isBefore(entry.startDatum)) {
+      return calculateInterest(entry, entry.startDatum, quartalsEnde);
     }
-    return 0;
+    return calculateInterest(entry, quartalsBeginn, quartalsEnde);
   };
 
   const handleQuartalsBeginnChange: DatePickerProps["onChange"] = (date) => {
