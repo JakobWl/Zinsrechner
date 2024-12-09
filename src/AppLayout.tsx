@@ -24,6 +24,8 @@ interface KontoData {
   endDatum: Dayjs;
   zinssatz: number;
   nominal: number;
+  zinsen?: number;
+  quarterlyZinsen?: number;
 }
 
 export function AppLayout({
@@ -88,24 +90,38 @@ export function AppLayout({
     setData(updatedData);
   };
 
+  const calculateInterest = (
+    entry: KontoData,
+    startDatum: Dayjs,
+    endDatum: Dayjs,
+  ) => {
+    const days = endDatum.diff(startDatum, "day");
+    return entry.nominal * (entry.zinssatz / 100) * (days / 365);
+  };
+
   const calculateTotalInterest = () => {
     return data.reduce((total, entry) => {
-      const days = entry.endDatum.diff(entry.startDatum, "day");
-      const interest = entry.nominal * (entry.zinssatz / 100) * (days / 365);
-      return total + interest;
+      return total + calculateInterest(entry, entry.startDatum, entry.endDatum);
     }, 0);
   };
 
-  const calculateQuarterlyInterest = () => {
+  const calculateSingleInterest = (entry: KontoData) => {
+    return calculateInterest(entry, entry.startDatum, entry.endDatum);
+  };
+
+  const calculateQuarterlyTotalInterest = () => {
     if (!quartalsBeginn || !quartalsEnde) return 0;
     return data.reduce((total, entry) => {
-      if (quartalsBeginn.isAfter(entry.startDatum)) {
-        const days = quartalsEnde.diff(quartalsBeginn, "day");
-        const interest = entry.nominal * (entry.zinssatz / 100) * (days / 365);
-        return total + interest;
-      }
-      return total;
+      return total + calculateInterest(entry, quartalsBeginn, quartalsEnde);
     }, 0);
+  };
+
+  const calculateQuarterlySingleInterest = (entry: KontoData) => {
+    if (!quartalsBeginn || !quartalsEnde) return 0;
+    if (quartalsBeginn.isAfter(entry.startDatum)) {
+      return calculateInterest(entry, quartalsBeginn, quartalsEnde);
+    }
+    return 0;
   };
 
   const handleQuartalsBeginnChange: DatePickerProps["onChange"] = (date) => {
@@ -122,92 +138,118 @@ export function AppLayout({
       a.bankName.localeCompare(b.bankName),
     );
 
+    // Berechne die Gesamtsumme der Nominalwerte
+    const totalNominal = data.reduce((sum, entry) => sum + entry.nominal, 0);
+    const totalInterest = calculateTotalInterest();
+    const totalQuarterlyInterest =
+      quartalsBeginn && quartalsEnde ? calculateQuarterlyTotalInterest() : null;
+
     // Verwende die preload-Skript-Methode, um ein Druckfenster in Electron zu erstellen
     window.ipcRenderer.send("create-print-window", {
       content: `
-            <html lang="de">
-                <head>
-                    <title>Konten Übersicht</title>
-                    <style>
-                        body {
-                            font-family: Arial, sans-serif;
-                            margin: 20px;
-                            color: #333;
-                        }
-                        h1 {
-                            text-align: center;
-                            color: #4CAF50;
-                        }
-                        table {
-                            width: 100%;
-                            border-collapse: collapse;
-                            margin-bottom: 20px;
-                        }
-                        table, th, td {
-                            border: 1px solid #ddd;
-                        }
-                        th {
-                            background-color: #f2f2f2;
-                            padding: 12px;
-                            text-align: left;
-                        }
-                        td {
-                            padding: 12px;
-                        }
-                        tr:nth-child(even) {
-                            background-color: #f9f9f9;
-                        }
-                        tr:hover {
-                            background-color: #f1f1f1;
-                        }
-                        .bank-group {
-                            margin-top: 40px;
-                        }
-                        .bank-title {
-                            font-size: 1.5em;
-                            margin-top: 20px;
-                            color: #333;
-                        }
-                    </style>
-                </head>
-                <body>
-                    <h1>Konten Übersicht</h1>
-                    ${groupedData
-                      .map((entry, index, array) => {
-                        const isNewGroup =
-                          index === 0 ||
-                          array[index - 1].bankName !== entry.bankName;
-                        const isLastInGroup =
-                          index === array.length - 1 ||
-                          array[index + 1].bankName !== entry.bankName;
+          <html lang="de">
+              <head>
+                  <title>Konten Übersicht</title>
+                  <style>
+                      body {
+                          font-family: Arial, sans-serif;
+                          margin: 20px;
+                          color: #333;
+                      }
+                      h1 {
+                          text-align: center;
+                          color: #4CAF50;
+                      }
+                      table {
+                          width: 100%;
+                          border-collapse: collapse;
+                          margin-bottom: 20px;
+                      }
+                      table, th, td {
+                          border: 1px solid #ddd;
+                      }
+                      th {
+                          background-color: #f2f2f2;
+                          padding: 12px;
+                          text-align: left;
+                      }
+                      td {
+                          padding: 12px;
+                      }
+                      tr:nth-child(even) {
+                          background-color: #f9f9f9;
+                      }
+                      tr:hover {
+                          background-color: #f1f1f1;
+                      }
+                      .bank-group {
+                          margin-top: 40px;
+                      }
+                      .bank-title {
+                          font-size: 1.5em;
+                          margin-top: 20px;
+                          color: #333;
+                      }
+                      .total {
+                          margin-top: 20px;
+                          font-size: 1.2em;
+                          font-weight: bold;
+                      }
+                  </style>
+              </head>
+              <body>
+                  <h1>Konten Übersicht</h1>
+                  ${groupedData
+                    .map((entry, index, array) => {
+                      const isNewGroup =
+                        index === 0 ||
+                        array[index - 1].bankName !== entry.bankName;
+                      const isLastInGroup =
+                        index === array.length - 1 ||
+                        array[index + 1].bankName !== entry.bankName;
 
-                        return `
-                            ${
-                              isNewGroup
-                                ? `<div class="bank-group">
-                                    <div class="bank-title">${entry.bankName}</div>
-                                    <table>
-                                    <thead><tr>
-                                    <th>Konto Nummer</th><th>Startdatum</th>
-                                    <th>Enddatum</th><th>Monate</th>
-                                    <th>Zinssatz (%)</th><th>Nominal (€)</th></tr></thead><tbody>`
-                                : ""
-                            }
-                            <tr>
-                                <td>${entry.kontoNumber}</td>
-                                <td>${entry.startDatum.format("DD.MM.YYYY")}</td>
-                                <td>${entry.endDatum.format("DD.MM.YYYY")}</td>
-                                <td>${entry.endDatum.diff(entry.startDatum, "month")}</td>
-                                <td>${entry.zinssatz}</td>
-                                <td>${entry.nominal}</td>
-                            </tr>
-                            ${isLastInGroup ? `</tbody></table></div>` : ""}
-                        `;
-                      })
-                      .join("")}
-                </body>
-            </html>
-        `,
+                      return `
+                          ${
+                            isNewGroup
+                              ? `<div class="bank-group">
+                                  <div class="bank-title">${entry.bankName}</div>
+                                  <table>
+                                  <thead><tr>
+                                  <th>Konto Nummer</th><th>Startdatum</th>
+                                  <th>Enddatum</th><th>Monate</th>
+                                  <th>Zinssatz (%)</th><th>Nominal (€)</th>
+                                  <th>Zinsen (€)</th><th>Quartalszinsen (€)</th>
+                                  </tr>
+                                  </thead><tbody>
+                                `
+                              : ""
+                          }
+                          <tr>
+                              <td>${entry.kontoNumber}</td>
+                              <td>${entry.startDatum.format("DD.MM.YYYY")}</td>
+                              <td>${entry.endDatum.format("DD.MM.YYYY")}</td>
+                              <td>${entry.endDatum.diff(entry.startDatum, "month")}</td>
+                              <td>${entry.zinssatz}</td>
+                              <td>${entry.nominal.toFixed(2)}</td>
+                              <td>${calculateSingleInterest(entry).toFixed(2)}</td>
+                              <td>${calculateQuarterlySingleInterest(entry).toFixed(2)}</td>
+                          </tr>
+                          ${isLastInGroup ? `</tbody></table></div>` : ""}
+                      `;
+                    })
+                    .join("")}
+                  <div class="summary">
+                    Gesamtsumme der Nominalwerte: €${totalNominal.toFixed(2)}<br/>
+                    Gesamtsumme der Zinsen: €${totalInterest.toFixed(2)}<br/>
+                    ${
+                      totalQuarterlyInterest !== null
+                        ? `Quartalszinsen: €${totalQuarterlyInterest.toFixed(2)}`
+                        : ""
+                    }
+                </div>
+              </body>
+          </html>
+      `,
     });
   };
 
@@ -318,17 +360,22 @@ export function AppLayout({
                   format="DD.MM.YYYY"
                 />
               </Form.Item>
-              <Typography.Text style={{ marginLeft: 10 }}>
-                Quartalszinsen: {calculateQuarterlyInterest().toFixed(2)} €
-              </Typography.Text>
+              <Tooltip title={calculateQuarterlyTotalInterest()}>
+                <Typography.Text style={{ marginLeft: 10 }}>
+                  Quartalszinsen:{" "}
+                  {calculateQuarterlyTotalInterest().toLocaleString("de-DE")} €
+                </Typography.Text>
+              </Tooltip>
             </Form>
           </Row>
         </Card>
 
         <Card style={{ margin: "15px 15px 15px 0" }}>
-          <Typography.Text>
-            Gesamtzinsen: {calculateTotalInterest().toFixed(2)} €
-          </Typography.Text>
+          <Tooltip title={calculateTotalInterest()}>
+            <Typography.Text>
+              Gesamtzinsen: {calculateTotalInterest().toLocaleString("de-DE")} €
+            </Typography.Text>
+          </Tooltip>
         </Card>
 
         <Card style={{ margin: "15px 15px 15px 0" }}>
@@ -402,6 +449,37 @@ export function AppLayout({
               title="Nominal (€)"
               dataIndex="nominal"
               key="nominal"
+            />
+            <Table.Column
+              fixed={"right"}
+              width={120}
+              title="Zinsen (€)"
+              dataIndex="zinsen"
+              key="zinsen"
+              render={(_, record: KontoData) => {
+                const interest = calculateSingleInterest(record);
+                return (
+                  <Tooltip title={interest}>
+                    {interest.toLocaleString("de-DE")}
+                  </Tooltip>
+                );
+              }}
+            />
+            <Table.Column
+              fixed={"right"}
+              width={150}
+              title="Quartalszinsen (€)"
+              dataIndex="quarterlyZinsen"
+              key="quarterlyZinsen"
+              render={(_, record: KontoData) => {
+                const quarterlyInterest =
+                  calculateQuarterlySingleInterest(record);
+                return (
+                  <Tooltip title={quarterlyInterest}>
+                    {quarterlyInterest.toLocaleString("de-DE")}
+                  </Tooltip>
+                );
+              }}
             />
             <Table.Column
               fixed={"right"}

@@ -117,7 +117,7 @@ ipcMain.on("save-data", (event, data) => {
 
 ipcMain.on("create-print-window", (event, data) => {
   let printWindow = new BrowserWindow({
-    width: 800,
+    width: 1000,
     height: 600,
     show: true,
     webPreferences: {
@@ -148,6 +148,8 @@ ipcMain.on("create-print-window", (event, data) => {
 
   // Wait until the content is loaded, then print
   printWindow.webContents.on("did-finish-load", () => {
+    const printRootId = "print-root";
+    printWindow.webContents.send("print-window-ready", printRootId);
     printWindow.webContents.print(printOptions, (success, failureReason) => {
       if (!success) {
         console.error("Print failed:", failureReason);
