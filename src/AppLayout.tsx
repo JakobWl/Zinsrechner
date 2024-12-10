@@ -176,6 +176,9 @@ export function AppLayout({
                       td {
                           padding: 12px;
                       }
+                      .align-right {
+                        text-align: right;
+                      }
                       tr:nth-child(even) {
                           background-color: #f9f9f9;
                       }
@@ -230,9 +233,22 @@ export function AppLayout({
                               <td>${entry.endDatum.format("DD.MM.YYYY")}</td>
                               <td>${entry.endDatum.diff(entry.startDatum, "month")}</td>
                               <td>${entry.zinssatz}</td>
-                              <td>${entry.nominal.toFixed(2)}</td>
-                              <td>${calculateSingleInterest(entry).toFixed(2)}</td>
-                              <td>${calculateQuarterlySingleInterest(entry).toFixed(2)}</td>
+                              <td>${entry.nominal.toLocaleString("de-DE", {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}</td>
+                              <td class="align-right">${calculateSingleInterest(
+                                entry,
+                              ).toLocaleString("de-DE", {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}</td>
+                              <td class="align-right">${calculateQuarterlySingleInterest(
+                                entry,
+                              ).toLocaleString("de-DE", {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}</td>
                           </tr>
                           ${isLastInGroup ? `</tbody></table></div>` : ""}
                       `;
@@ -449,10 +465,12 @@ export function AppLayout({
               title="Nominal (€)"
               dataIndex="nominal"
               key="nominal"
+              render={(nominal: number) => nominal.toLocaleString("de-DE")}
             />
             <Table.Column
               fixed={"right"}
               width={120}
+              align="right"
               title="Zinsen (€)"
               dataIndex="zinsen"
               key="zinsen"
@@ -460,7 +478,10 @@ export function AppLayout({
                 const interest = calculateSingleInterest(record);
                 return (
                   <Tooltip title={interest}>
-                    {interest.toLocaleString("de-DE")}
+                    {interest.toLocaleString("de-DE", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
                   </Tooltip>
                 );
               }}
@@ -468,6 +489,7 @@ export function AppLayout({
             <Table.Column
               fixed={"right"}
               width={150}
+              align="right"
               title="Quartalszinsen (€)"
               dataIndex="quarterlyZinsen"
               key="quarterlyZinsen"
@@ -476,7 +498,10 @@ export function AppLayout({
                   calculateQuarterlySingleInterest(record);
                 return (
                   <Tooltip title={quarterlyInterest}>
-                    {quarterlyInterest.toLocaleString("de-DE")}
+                    {quarterlyInterest.toLocaleString("de-DE", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
                   </Tooltip>
                 );
               }}
