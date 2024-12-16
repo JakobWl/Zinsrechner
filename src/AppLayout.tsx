@@ -96,13 +96,15 @@ export function AppLayout({
     endDatum: Dayjs,
   ) => {
     const days = endDatum.diff(startDatum, "day");
-    return entry.nominal * (entry.zinssatz / 100) * (days / 365);
+    const interest = entry.nominal * (entry.zinssatz / 100) * (days / 365);
+    return Math.round(interest * 100) / 100;
   };
 
   const calculateTotalInterest = () => {
-    return data.reduce((total, entry) => {
+    const total = data.reduce((total, entry) => {
       return total + calculateInterest(entry, entry.startDatum, entry.endDatum);
     }, 0);
+    return Math.round(total * 100) / 100;
   };
 
   const calculateSingleInterest = (entry: KontoData) => {
@@ -111,9 +113,10 @@ export function AppLayout({
 
   const calculateQuarterlyTotalInterest = () => {
     if (!quartalsBeginn || !quartalsEnde) return 0;
-    return data.reduce((total, entry) => {
+    const total = data.reduce((total, entry) => {
       return total + calculateInterest(entry, quartalsBeginn, quartalsEnde);
     }, 0);
+    return Math.round(total * 100) / 100;
   };
 
   const calculateQuarterlySingleInterest = (entry: KontoData) => {
@@ -376,22 +379,18 @@ export function AppLayout({
                   format="DD.MM.YYYY"
                 />
               </Form.Item>
-              <Tooltip title={calculateQuarterlyTotalInterest()}>
-                <Typography.Text style={{ marginLeft: 10 }}>
-                  Quartalszinsen:{" "}
-                  {calculateQuarterlyTotalInterest().toLocaleString("de-DE")} €
-                </Typography.Text>
-              </Tooltip>
+              <Typography.Text style={{ marginLeft: 10 }}>
+                Quartalszinsen:{" "}
+                {calculateQuarterlyTotalInterest().toLocaleString("de-DE")} €
+              </Typography.Text>
             </Form>
           </Row>
         </Card>
 
         <Card style={{ margin: "15px 15px 15px 0" }}>
-          <Tooltip title={calculateTotalInterest()}>
-            <Typography.Text>
-              Gesamtzinsen: {calculateTotalInterest().toLocaleString("de-DE")} €
-            </Typography.Text>
-          </Tooltip>
+          <Typography.Text>
+            Gesamtzinsen: {calculateTotalInterest().toLocaleString("de-DE")} €
+          </Typography.Text>
         </Card>
 
         <Card style={{ margin: "15px 15px 15px 0" }}>
@@ -476,14 +475,10 @@ export function AppLayout({
               key="zinsen"
               render={(_, record: KontoData) => {
                 const interest = calculateSingleInterest(record);
-                return (
-                  <Tooltip title={interest}>
-                    {interest.toLocaleString("de-DE", {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}
-                  </Tooltip>
-                );
+                return interest.toLocaleString("de-DE", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                });
               }}
             />
             <Table.Column
@@ -496,14 +491,10 @@ export function AppLayout({
               render={(_, record: KontoData) => {
                 const quarterlyInterest =
                   calculateQuarterlySingleInterest(record);
-                return (
-                  <Tooltip title={quarterlyInterest}>
-                    {quarterlyInterest.toLocaleString("de-DE", {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}
-                  </Tooltip>
-                );
+                return quarterlyInterest.toLocaleString("de-DE", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                });
               }}
             />
             <Table.Column
