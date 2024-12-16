@@ -5,7 +5,7 @@ import path from "node:path";
 import os from "node:os";
 import * as fs from "node:fs";
 
-const require = createRequire(import.meta.url);
+createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // The built directory structure
@@ -100,16 +100,23 @@ app.on("activate", () => {
 
 ipcMain.handle("load-data", async () => {
   try {
-    return fs.readFileSync("konten.json", "utf8");
+    const userDataPath = app.getPath("userData"); // Get user data directory
+    const filePath = path.join(userDataPath, "konten.json"); // Construct full file path
+    if (!fs.existsSync(filePath)) {
+      return "[]"; // Return an empty array if file does not exist
+    }
+    return fs.readFileSync(filePath, "utf8"); // Read and return the file content
   } catch (error) {
     console.error("Error loading data:", error);
-    return "[]"; // Return an empty array if the file does not exist or there is an error
+    return "[]"; // Return an empty array on error
   }
 });
 
 ipcMain.on("save-data", (event, data) => {
   try {
-    fs.writeFileSync("konten.json", data, "utf8");
+    const userDataPath = app.getPath("userData"); // Get user data directory
+    const filePath = path.join(userDataPath, "konten.json"); // Construct full file path
+    fs.writeFileSync(filePath, data, "utf8"); // Save data to the file
   } catch (error) {
     console.error("Error saving data:", error);
   }

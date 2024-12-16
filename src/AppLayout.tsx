@@ -38,7 +38,7 @@ export function AppLayout({
   const {
     token: { colorErrorBgHover },
   } = theme.useToken();
-  const [data, setData] = useState<KontoData[]>([]);
+  const [data, setData] = useState<KontoData[] | undefined>(undefined);
   const [quartalsBeginn, setQuartalsBeginn] = useState<Dayjs | null>(null);
   const [quartalsEnde, setQuartalsEnde] = useState<Dayjs | null>(null);
   const [form] = Form.useForm();
@@ -64,12 +64,12 @@ export function AppLayout({
   }, []);
 
   useEffect(() => {
-    if (data.length > 0) {
-      window.ipcRenderer.send("save-data", JSON.stringify(data, null, 2));
-    }
+    if (!data) return;
+    window.ipcRenderer.send("save-data", JSON.stringify(data, null, 2));
   }, [data]);
 
   const handleAddKonto = (values: any) => {
+    if (!data) return;
     const { bankName, kontoNumber, startDatum, endDatum, zinssatz, nominal } =
       values;
     const newKonto: KontoData = {
@@ -85,6 +85,7 @@ export function AppLayout({
   };
 
   const handleDeleteKonto = (index: number) => {
+    if (!data) return;
     const updatedData = [...data];
     updatedData.splice(index, 1);
     setData(updatedData);
@@ -101,6 +102,7 @@ export function AppLayout({
   };
 
   const calculateTotalInterest = () => {
+    if (!data) return 0;
     const total = data.reduce((total, entry) => {
       return total + calculateInterest(entry, entry.startDatum, entry.endDatum);
     }, 0);
@@ -112,6 +114,7 @@ export function AppLayout({
   };
 
   const calculateQuarterlyTotalInterest = () => {
+    if (!data) return 0;
     if (!quartalsBeginn || !quartalsEnde) return 0;
     const total = data.reduce((total, entry) => {
       return total + calculateInterest(entry, quartalsBeginn, quartalsEnde);
@@ -136,6 +139,7 @@ export function AppLayout({
   };
 
   const handlePrint = () => {
+    if (!data) return;
     // Gruppiere und sortiere die Daten
     const groupedData = data.sort((a, b) =>
       a.bankName.localeCompare(b.bankName),
