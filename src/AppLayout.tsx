@@ -116,8 +116,9 @@ export function AppLayout({
   const calculateQuarterlyTotalInterest = () => {
     if (!data) return 0;
     if (!quartalsBeginn || !quartalsEnde) return 0;
+
     const total = data.reduce((total, entry) => {
-      return total + calculateInterest(entry, quartalsBeginn, quartalsEnde);
+      return total + calculateQuarterlySingleInterest(entry);
     }, 0);
     return Math.round(total * 100) / 100;
   };
