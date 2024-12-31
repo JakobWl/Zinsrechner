@@ -210,6 +210,7 @@ export function AppLayout({
               </head>
               <body>
                   <h1>Konten Übersicht</h1>
+                  ${quartalsBeginn && quartalsEnde ? `<p>Quartalsbeginn: ${quartalsBeginn.format("DD.MM.YYYY")}, Quartalsende: ${quartalsEnde.format("DD.MM.YYYY")}</p>` : ""}
                   ${groupedData
                     .map((entry, index, array) => {
                       const isNewGroup =
