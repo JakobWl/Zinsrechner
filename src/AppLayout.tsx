@@ -237,10 +237,10 @@ export function AppLayout({
           <td></td>
           <td></td>
           <td class="align-right">${groupNominal.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-          <td class="align-right">${groupVerbuchte.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-          <td class="align-right">${groupKommulierte.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
           <td class="align-right">${groupInterest.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
           <td class="align-right">${groupQuarterly.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+          <td></td>
+          <td class="align-right">${groupKommulierte.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
         </tr>
       </tbody>
     `;
