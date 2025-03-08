@@ -350,6 +350,12 @@ export function AppLayout({
             font-weight: bold;
             margin-top: 20px;
           }
+          .summary table {
+            border-collapse: collapse;
+          }
+          .summary td {
+            padding: 5px 20px; /* Hier kannst du den Abstand anpassen */
+          }
         </style>
       </head>
       <body>
@@ -361,13 +367,33 @@ export function AppLayout({
         }
         ${tableHTML}
         <div class="summary">
-          Gesamtsumme der Nominalwerte: €${totalNominal.toFixed(2)}<br/>
-          Gesamtsumme der Zinsen: €${totalInterest.toFixed(2)}<br/>
-          ${
-            totalQuarterlyInterest !== null
-              ? `Quartalszinsen: €${totalQuarterlyInterest.toFixed(2)}`
-              : ""
-          }
+          <table>
+            <tr>
+              <td>Gesamtsumme der Nominalwerte:</td>
+              <td>${totalNominal.toLocaleString("de-DE", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })} €</td>
+            </tr>
+            <tr>
+              <td>Gesamtsumme der Zinsen:</td>
+              <td>${totalInterest.toLocaleString("de-DE", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })} €</td>
+            </tr>
+            ${
+              totalQuarterlyInterest !== null
+                ? `<tr>
+                     <td>Gesamtsumme der Quartalszinsen:</td>
+                     <td>${totalQuarterlyInterest.toLocaleString("de-DE", {
+                       minimumFractionDigits: 2,
+                       maximumFractionDigits: 2,
+                     })} €</td>
+                   </tr>`
+                : ""
+            }
+          </table>
         </div>
       </body>
     </html>
