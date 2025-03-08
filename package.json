@@ -1,6 +1,6 @@
 {
   "name": "zinsrechner",
-  "version": "1.0.7",
+  "version": "1.0.9",
   "main": "dist-electron/main/index.js",
   "description": "BBG Zinsrechner.",
   "author": "Jakob Winkler",

@@ -4,7 +4,6 @@ import {
   Button,
   Card,
   DatePicker,
-  DatePickerProps,
   FloatButton,
   Form,
   Input,
@@ -17,6 +16,7 @@ import {
   Typography,
 } from "antd";
 import { MoonOutlined, SettingOutlined, SunOutlined } from "@ant-design/icons";
+import { RangePickerProps } from "antd/lib/date-picker";
 
 interface KontoData {
   bankName: string;
@@ -73,8 +73,9 @@ export function AppLayout({
 
   const handleAddKonto = (values: any) => {
     if (!data) return;
-    const { bankName, kontoNumber, startDatum, endDatum, zinssatz, nominal } =
-      values;
+    // Using the range picker value, where values.dateRange is an array of two Dayjs objects
+    const [startDatum, endDatum] = values.dateRange;
+    const { bankName, kontoNumber, zinssatz, nominal } = values;
     const newKonto: KontoData = {
       bankName,
       kontoNumber,
@@ -137,12 +138,16 @@ export function AppLayout({
     return calculateInterest(entry, quartalsBeginn, quartalsEnde);
   };
 
-  const handleQuartalsBeginnChange: DatePickerProps["onChange"] = (date) => {
-    setQuartalsBeginn(date ? dayjs(date) : null);
-  };
-
-  const handleQuartalsEndeChange: DatePickerProps["onChange"] = (date) => {
-    setQuartalsEnde(date ? dayjs(date) : null);
+  const handleQuartalsRangeChange: RangePickerProps["onChange"] = (
+    dates: [start: Dayjs | null, end: Dayjs | null] | null,
+  ) => {
+    if (dates) {
+      setQuartalsBeginn(dates[0]);
+      setQuartalsEnde(dates[1]);
+    } else {
+      setQuartalsBeginn(null);
+      setQuartalsEnde(null);
+    }
   };
 
   const handlePrint = () => {
@@ -186,11 +191,29 @@ export function AppLayout({
             <td>${entry.endDatum.format("DD.MM.YYYY")}</td>
             <td>${monate}</td>
             <td>${entry.zinssatz}</td>
-            <td class="align-right">${entry.nominal.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-            <td class="align-right">${singleInterest.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-            <td class="align-right">${quarterlyInterest.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-            <td class="align-right">${verbuchte.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-            <td class="align-right">${kommulierte.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+            <td class="align-right">${entry.nominal.toLocaleString("de-DE", {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })}</td>
+            <td class="align-right">${singleInterest.toLocaleString("de-DE", {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })}</td>
+            <td class="align-right">${quarterlyInterest.toLocaleString(
+              "de-DE",
+              {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              },
+            )}</td>
+            <td class="align-right">${verbuchte.toLocaleString("de-DE", {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })}</td>
+            <td class="align-right">${kommulierte.toLocaleString("de-DE", {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })}</td>
           </tr>
         `;
         })
@@ -199,10 +222,6 @@ export function AppLayout({
       // Calculate group totals
       const groupNominal = entries.reduce(
         (sum, entry) => sum + entry.nominal,
-        0,
-      );
-      const groupVerbuchte = entries.reduce(
-        (sum, entry) => sum + (entry.verbuchteRueckstellung || 0),
         0,
       );
       const groupKommulierte = entries.reduce(
@@ -236,11 +255,23 @@ export function AppLayout({
           <td></td>
           <td></td>
           <td></td>
-          <td class="align-right">${groupNominal.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-          <td class="align-right">${groupInterest.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-          <td class="align-right">${groupQuarterly.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+          <td class="align-right">${groupNominal.toLocaleString("de-DE", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}</td>
+          <td class="align-right">${groupInterest.toLocaleString("de-DE", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}</td>
+          <td class="align-right">${groupQuarterly.toLocaleString("de-DE", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}</td>
           <td></td>
-          <td class="align-right">${groupKommulierte.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+          <td class="align-right">${groupKommulierte.toLocaleString("de-DE", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}</td>
         </tr>
       </tbody>
     `;
@@ -287,7 +318,7 @@ export function AppLayout({
             width: 100%;
             border-collapse: collapse;
             margin-bottom: 20px;
-            zoom: 0.8;
+            zoom: 0.7;
           }
           table, th, td {
             border: 1px solid #ddd;
@@ -375,28 +406,16 @@ export function AppLayout({
               <Input />
             </Form.Item>
             <Form.Item
-              label="Startdatum"
-              name="startDatum"
+              label="Zeitraum (Startdatum & Enddatum)"
+              name="dateRange"
               rules={[
                 {
                   required: true,
-                  message: "Bitte wählen Sie das Startdatum aus!",
+                  message: "Bitte wählen Sie den Zeitraum aus!",
                 },
               ]}
             >
-              <DatePicker format="DD.MM.YYYY" />
-            </Form.Item>
-            <Form.Item
-              label="Enddatum"
-              name="endDatum"
-              rules={[
-                {
-                  required: true,
-                  message: "Bitte wählen Sie das Enddatum aus!",
-                },
-              ]}
-            >
-              <DatePicker format="DD.MM.YYYY" />
+              <DatePicker.RangePicker format="DD.MM.YYYY" />
             </Form.Item>
             <Form.Item
               label="Zinssatz (%)"
@@ -430,33 +449,27 @@ export function AppLayout({
       </div>
       <div style={{ minWidth: 300, width: "100%", flex: 3 }}>
         <Card style={{ margin: "15px 15px 15px 0" }}>
-          <Row>
+          <Row align="middle" gutter={16}>
             <Form
               layout="horizontal"
               style={{ display: "flex", alignItems: "center" }}
             >
-              <Form.Item style={{ marginBottom: 0 }} label="Quartalsbeginn">
-                <DatePicker
-                  value={quartalsBeginn ? quartalsBeginn : undefined}
-                  onChange={handleQuartalsBeginnChange}
+              <Form.Item style={{ marginBottom: 0 }} label="Quartalszeitraum">
+                <DatePicker.RangePicker
+                  value={
+                    quartalsBeginn && quartalsEnde
+                      ? [quartalsBeginn, quartalsEnde]
+                      : undefined
+                  }
+                  onChange={handleQuartalsRangeChange}
                   format="DD.MM.YYYY"
                 />
               </Form.Item>
-              <Form.Item
-                style={{ marginBottom: 0, marginLeft: 10 }}
-                label="Quartalsende"
-              >
-                <DatePicker
-                  value={quartalsEnde ? quartalsEnde : undefined}
-                  onChange={handleQuartalsEndeChange}
-                  format="DD.MM.YYYY"
-                />
-              </Form.Item>
-              <Typography.Text style={{ marginLeft: 10 }}>
-                Quartalszinsen:{" "}
-                {calculateQuarterlyTotalInterest().toLocaleString("de-DE")} €
-              </Typography.Text>
             </Form>
+            <Typography.Text style={{ marginLeft: 10 }}>
+              Quartalszinsen:{" "}
+              {calculateQuarterlyTotalInterest().toLocaleString("de-DE")} €
+            </Typography.Text>
           </Row>
         </Card>
 
@@ -593,14 +606,14 @@ export function AppLayout({
               width={120}
               title="Startdatum"
               dataIndex="startDatum"
-              key="startDatum"
+              key="startdatum"
               render={(date: Dayjs) => date.format("DD.MM.YYYY")}
             />
             <Table.Column
               width={120}
               title="Enddatum"
               dataIndex="endDatum"
-              key="endDatum"
+              key="enddatum"
               render={(date: Dayjs) => date.format("DD.MM.YYYY")}
             />
             <Table.Column
