@@ -152,133 +152,160 @@ export function AppLayout({
 
   const handlePrint = () => {
     if (!data) return;
-    // Sort and group data by bank name
-    const sortedData = [...data].sort((a, b) =>
-      a.bankName.localeCompare(b.bankName),
+    const now = dayjs(); // aktuelles Datum
+
+    // Daten in aktive und abgelaufene Konten aufteilen
+    const activeData = data.filter(
+      (entry) => !entry.endDatum.isBefore(now, "day"),
     );
-    const groupedByBank = sortedData.reduce(
-      (acc, entry) => {
-        if (!acc[entry.bankName]) {
-          acc[entry.bankName] = [];
-        }
-        acc[entry.bankName].push(entry);
-        return acc;
-      },
-      {} as Record<string, KontoData[]>,
+    const expiredData = data.filter((entry) =>
+      entry.endDatum.isBefore(now, "day"),
     );
 
-    // Calculate overall totals
-    const totalNominal = data.reduce((sum, entry) => sum + entry.nominal, 0);
-    const totalInterest = calculateTotalInterest();
-    const totalQuarterlyInterest =
-      quartalsBeginn && quartalsEnde ? calculateQuarterlyTotalInterest() : null;
+    // Funktion, die aus einem Datenarray die Tabelleninhalte erstellt
+    const buildTableContent = (dataArray: KontoData[]) => {
+      const sortedData = [...dataArray].sort((a, b) =>
+        a.bankName.localeCompare(b.bankName),
+      );
+      const groupedByBank = sortedData.reduce(
+        (acc, entry) => {
+          if (!acc[entry.bankName]) {
+            acc[entry.bankName] = [];
+          }
+          acc[entry.bankName].push(entry);
+          return acc;
+        },
+        {} as Record<string, KontoData[]>,
+      );
 
-    // Build table body content using multiple <tbody> elements
-    let tableContent = "";
-    Object.entries(groupedByBank).forEach(([bankName, entries]) => {
-      // Build rows for the current bank group
-      const groupRows = entries
-        .map((entry) => {
-          const monate = entry.endDatum.diff(entry.startDatum, "month");
-          const singleInterest = calculateSingleInterest(entry);
-          const quarterlyInterest = calculateQuarterlySingleInterest(entry);
-          const verbuchte = entry.verbuchteRueckstellung || 0;
-          const kommulierte = entry.kommulierteSumme || 0;
-          return `
-          <tr>
-            <td>${entry.kontoNumber}</td>
-            <td>${entry.startDatum.format("DD.MM.YYYY")}</td>
-            <td>${entry.endDatum.format("DD.MM.YYYY")}</td>
-            <td>${monate}</td>
-            <td>${entry.zinssatz}</td>
-            <td class="align-right">${entry.nominal.toLocaleString("de-DE", {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2,
-            })}</td>
-            <td class="align-right">${singleInterest.toLocaleString("de-DE", {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2,
-            })}</td>
-            <td class="align-right">${quarterlyInterest.toLocaleString(
-              "de-DE",
-              {
+      let tableContent = "";
+      Object.entries(groupedByBank).forEach(([bankName, entries]) => {
+        // Erstelle die Zeilen für die jeweilige Bankgruppe
+        const groupRows = entries
+          .map((entry) => {
+            const monate = entry.endDatum.diff(entry.startDatum, "month");
+            const singleInterest = calculateSingleInterest(entry);
+            const quarterlyInterest = calculateQuarterlySingleInterest(entry);
+            const verbuchte = entry.verbuchteRueckstellung || 0;
+            const kommulierte = entry.kommulierteSumme || 0;
+            return `
+            <tr>
+              <td>${entry.kontoNumber}</td>
+              <td>${entry.startDatum.format("DD.MM.YYYY")}</td>
+              <td>${entry.endDatum.format("DD.MM.YYYY")}</td>
+              <td>${monate}</td>
+              <td>${entry.zinssatz}</td>
+              <td class="align-right">${entry.nominal.toLocaleString("de-DE", {
                 minimumFractionDigits: 2,
                 maximumFractionDigits: 2,
-              },
-            )}</td>
-            <td class="align-right">${verbuchte.toLocaleString("de-DE", {
+              })}</td>
+              <td class="align-right">${singleInterest.toLocaleString("de-DE", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}</td>
+              <td class="align-right">${quarterlyInterest.toLocaleString(
+                "de-DE",
+                {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                },
+              )}</td>
+              <td class="align-right">${verbuchte.toLocaleString("de-DE", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}</td>
+              <td class="align-right">${kommulierte.toLocaleString("de-DE", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}</td>
+            </tr>
+          `;
+          })
+          .join("");
+
+        // Berechne die Summen für die Gruppe
+        const groupNominal = entries.reduce(
+          (sum, entry) => sum + entry.nominal,
+          0,
+        );
+        const groupInterest = entries.reduce(
+          (sum, entry) => sum + calculateSingleInterest(entry),
+          0,
+        );
+        const groupQuarterly = entries.reduce(
+          (sum, entry) => sum + calculateQuarterlySingleInterest(entry),
+          0,
+        );
+        const groupKommulierte = entries.reduce(
+          (sum, entry) =>
+            sum +
+            (calculateQuarterlySingleInterest(entry) -
+              (entry.verbuchteRueckstellung || 0)),
+          0,
+        );
+
+        // Füge die Gruppe als <tbody> hinzu
+        tableContent += `
+        <tbody>
+          <!-- Gruppenkopfzeile mit Bankname -->
+          <tr class="group-header">
+            <td colspan="10" class="bank-title">${bankName}</td>
+          </tr>
+          ${groupRows}
+          <!-- Gruppensummen -->
+          <tr style="font-weight: bold;">
+            <td>Summe</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td class="align-right">${groupNominal.toLocaleString("de-DE", {
               minimumFractionDigits: 2,
               maximumFractionDigits: 2,
             })}</td>
-            <td class="align-right">${kommulierte.toLocaleString("de-DE", {
+            <td class="align-right">${groupInterest.toLocaleString("de-DE", {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })}</td>
+            <td class="align-right">${groupQuarterly.toLocaleString("de-DE", {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })}</td>
+            <td></td>
+            <td class="align-right">${groupKommulierte.toLocaleString("de-DE", {
               minimumFractionDigits: 2,
               maximumFractionDigits: 2,
             })}</td>
           </tr>
-        `;
-        })
-        .join("");
+        </tbody>
+      `;
+      });
+      return tableContent;
+    };
 
-      // Calculate group totals
-      const groupNominal = entries.reduce(
-        (sum, entry) => sum + entry.nominal,
-        0,
-      );
-      const groupKommulierte = entries.reduce(
-        (sum, entry) =>
-          sum +
-          (calculateQuarterlySingleInterest(entry) -
-            (entry.verbuchteRueckstellung || 0)),
-        0,
-      );
-      const groupInterest = entries.reduce(
-        (sum, entry) => sum + calculateSingleInterest(entry),
-        0,
-      );
-      const groupQuarterly = entries.reduce(
-        (sum, entry) => sum + calculateQuarterlySingleInterest(entry),
-        0,
-      );
+    // Erstelle Inhalte für beide Tabellen
+    const activeTableContent = buildTableContent(activeData);
+    const expiredTableContent = buildTableContent(expiredData);
 
-      // Append the group as a new <tbody>
-      tableContent += `
-      <tbody>
-        <!-- Group header row with bank name -->
-        <tr class="group-header">
-          <td colspan="10" class="bank-title">${bankName}</td>
-        </tr>
-        ${groupRows}
-        <!-- Group total row -->
-        <tr style="font-weight: bold;">
-          <td>Summe</td>
-          <td></td>
-          <td></td>
-          <td></td>
-          <td></td>
-          <td class="align-right">${groupNominal.toLocaleString("de-DE", {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2,
-          })}</td>
-          <td class="align-right">${groupInterest.toLocaleString("de-DE", {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2,
-          })}</td>
-          <td class="align-right">${groupQuarterly.toLocaleString("de-DE", {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2,
-          })}</td>
-          <td></td>
-          <td class="align-right">${groupKommulierte.toLocaleString("de-DE", {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2,
-          })}</td>
-        </tr>
-      </tbody>
-    `;
-    });
+    // Berechne Gesamtsummen (hier nur für aktive Konten – passe dies ggf. an)
+    const totalNominal = activeData.reduce(
+      (sum, entry) => sum + entry.nominal,
+      0,
+    );
+    const totalInterest = activeData.reduce(
+      (sum, entry) => sum + calculateSingleInterest(entry),
+      0,
+    );
+    const totalQuarterlyInterest =
+      quartalsBeginn && quartalsEnde
+        ? activeData.reduce(
+            (sum, entry) => sum + calculateQuarterlySingleInterest(entry),
+            0,
+          )
+        : null;
 
-    // Build the overall table HTML with a single <thead> and the multiple <tbody> elements
-    const tableHTML = `
+    // Baue die HTML-Tabellen für aktive und abgelaufene Konten
+    const activeTableHTML = `
     <table>
       <thead>
         <tr>
@@ -294,11 +321,31 @@ export function AppLayout({
           <th>Kommulierte Summe (€)</th>
         </tr>
       </thead>
-      ${tableContent}
+      ${activeTableContent}
     </table>
   `;
 
-    // Build the final HTML content
+    const expiredTableHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>Konto Nummer</th>
+          <th>Startdatum</th>
+          <th>Enddatum</th>
+          <th>Mon.</th>
+          <th>Zins</br>satz (%)</th>
+          <th>Nominal (€)</th>
+          <th>Zinsen (€)</th>
+          <th>Quartalszinsen (€)</th>
+          <th>Verbuchte Rückstellung (€)</th>
+          <th>Kommulierte Summe (€)</th>
+        </tr>
+      </thead>
+      ${expiredTableContent}
+    </table>
+  `;
+
+    // Finaler HTML-Inhalt inkl. beider Tabellen
     const contentHTML = `
     <html lang="de">
       <head>
@@ -310,9 +357,8 @@ export function AppLayout({
             padding: 0;
             color: #333;
           }
-          h1 {
+          h1, h2 {
             text-align: center;
-            color: #4CAF50;
           }
           table {
             width: 100%;
@@ -354,7 +400,7 @@ export function AppLayout({
             border-collapse: collapse;
           }
           .summary td {
-            padding: 5px 20px; /* Hier kannst du den Abstand anpassen */
+            padding: 5px 20px;
           }
         </style>
       </head>
@@ -365,7 +411,9 @@ export function AppLayout({
             ? `<p>Quartalsbeginn: ${quartalsBeginn.format("DD.MM.YYYY")}, Quartalsende: ${quartalsEnde.format("DD.MM.YYYY")}</p>`
             : ""
         }
-        ${tableHTML}
+        ${activeTableHTML}
+        <h2>Abgelaufene Konten</h2>
+        ${expiredTableHTML}
         <div class="summary">
           <table>
             <tr>
@@ -513,7 +561,7 @@ export function AppLayout({
             <Typography.Title style={{ margin: 0 }} level={5}>
               Legende:
             </Typography.Title>
-            <Tooltip title="Eine Zeile wird rot markiert, wenn das Enddatum weniger als einen Monat in der Zukunft liegt. (abgelaufen)">
+            <Tooltip title="Eine Zeile wird rot markiert, wenn das Enddatum weniger als einen Monat in der Zukunft liegt. (bald abgelaufen)">
               <div
                 style={{
                   width: 20,
