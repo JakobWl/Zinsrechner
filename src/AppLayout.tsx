@@ -166,9 +166,9 @@ export function AppLayout({
 
   const handlePrint = () => {
     if (!data) return;
-    const now = dayjs();
+    const now = dayjs(); // aktuelles Datum
 
-    // Daten in aktive und abgelaufene Konten aufteilen
+    // Split data into active and expired accounts
     const activeData = data.filter(
       (entry) => !entry.endDatum.isBefore(now, "day"),
     );
@@ -176,7 +176,7 @@ export function AppLayout({
       entry.endDatum.isBefore(now, "day"),
     );
 
-    // Funktion, die aus einem Datenarray die Tabelleninhalte erstellt
+    // Build the table content for a given data array
     const buildTableContent = (dataArray: KontoData[]) => {
       const sortedData = [...dataArray].sort((a, b) =>
         a.bankName.localeCompare(b.bankName),
@@ -194,6 +194,7 @@ export function AppLayout({
 
       let tableContent = "";
       Object.entries(groupedByBank).forEach(([bankName, entries]) => {
+        // Build rows for each bank group
         const groupRows = entries
           .map((entry) => {
             const months = entry.endDatum.diff(entry.startDatum, "month");
@@ -320,27 +321,70 @@ export function AppLayout({
     const expiredTableContent = buildTableContent(expiredData);
 
     // Calculate overall totals for active accounts
-    const totalNominal = activeData.reduce(
+    const activeTotalNominal = activeData.reduce(
       (sum, entry) => sum + entry.nominal,
       0,
     );
-    const totalSingleInterest = activeData.reduce(
+    const activeTotalSingleInterest = activeData.reduce(
       (sum, entry) => sum + calculateSingleInterest(entry),
       0,
     );
-    const totalAccumulated = activeData.reduce(
+    const activeTotalAccumulated = activeData.reduce(
       (sum, entry) => sum + calculateAccumulatedInterest(entry),
       0,
     );
-    const totalQuarterly = activeData.reduce(
+    const activeTotalQuarterly = activeData.reduce(
       (sum, entry) => sum + calculateQuarterlySingleInterest(entry),
       0,
     );
-    const totalPaid = activeData.reduce(
+    const activeTotalPaid = activeData.reduce(
       (sum, entry) => sum + (entry.verbuchteRueckstellung || 0),
       0,
     );
-    const totalReserve = totalAccumulated - totalPaid;
+    const activeTotalReserve = activeTotalAccumulated - activeTotalPaid;
+
+    // Calculate overall totals for expired accounts
+    const expiredTotalNominal = expiredData.reduce(
+      (sum, entry) => sum + entry.nominal,
+      0,
+    );
+    const expiredTotalSingleInterest = expiredData.reduce(
+      (sum, entry) => sum + calculateSingleInterest(entry),
+      0,
+    );
+    const expiredTotalAccumulated = expiredData.reduce(
+      (sum, entry) => sum + calculateAccumulatedInterest(entry),
+      0,
+    );
+    const expiredTotalQuarterly = expiredData.reduce(
+      (sum, entry) => sum + calculateQuarterlySingleInterest(entry),
+      0,
+    );
+    const expiredTotalPaid = expiredData.reduce(
+      (sum, entry) => sum + (entry.verbuchteRueckstellung || 0),
+      0,
+    );
+    const expiredTotalReserve = expiredTotalAccumulated - expiredTotalPaid;
+
+    // Calculate overall totals for all accounts using the full data set
+    const allTotalNominal = data.reduce((sum, entry) => sum + entry.nominal, 0);
+    const allTotalSingleInterest = data.reduce(
+      (sum, entry) => sum + calculateSingleInterest(entry),
+      0,
+    );
+    const allTotalAccumulated = data.reduce(
+      (sum, entry) => sum + calculateAccumulatedInterest(entry),
+      0,
+    );
+    const allTotalQuarterly = data.reduce(
+      (sum, entry) => sum + calculateQuarterlySingleInterest(entry),
+      0,
+    );
+    const allTotalPaid = data.reduce(
+      (sum, entry) => sum + (entry.verbuchteRueckstellung || 0),
+      0,
+    );
+    const allTotalReserve = allTotalAccumulated - allTotalPaid;
 
     const activeTableHTML = `
     <table>
@@ -384,7 +428,8 @@ export function AppLayout({
     </table>
   `;
 
-    // Build the final HTML content with an updated summary
+    // Build the final HTML content with three summary sections:
+    // one for active, one for expired, and one overall summary for all accounts.
     const contentHTML = `
     <html lang="de">
       <head>
@@ -437,6 +482,7 @@ export function AppLayout({
           }
           .summary table {
             border-collapse: collapse;
+            margin: auto;
           }
           .summary td {
             padding: 5px 20px;
@@ -450,49 +496,147 @@ export function AppLayout({
             ? `<p>Quartalsbeginn: ${quartalsBeginn.format("DD.MM.YYYY")}, Quartalsende: ${quartalsEnde.format("DD.MM.YYYY")}</p>`
             : ""
         }
+        <h2>Aktive Konten</h2>
         ${activeTableHTML}
-        <h2>Abgelaufene Konten</h2>
-        ${expiredTableHTML}
         <div class="summary">
+          <h2>Aktive Konten Zusammenfassung</h2>
           <table>
             <tr>
               <td>Gesamtsumme der Nominalwerte:</td>
-              <td>${totalNominal.toLocaleString("de-DE", {
+              <td>${activeTotalNominal.toLocaleString("de-DE", {
                 minimumFractionDigits: 2,
                 maximumFractionDigits: 2,
               })} €</td>
             </tr>
             <tr>
               <td>Gesamtsumme der Zinsen gesamte Laufzeit:</td>
-              <td>${totalSingleInterest.toLocaleString("de-DE", {
+              <td>${activeTotalSingleInterest.toLocaleString("de-DE", {
                 minimumFractionDigits: 2,
                 maximumFractionDigits: 2,
               })} €</td>
             </tr>
             <tr>
               <td>Gesamtsumme der kummulierten Zinsen bis Stichtag:</td>
-              <td>${totalAccumulated.toLocaleString("de-DE", {
+              <td>${activeTotalAccumulated.toLocaleString("de-DE", {
                 minimumFractionDigits: 2,
                 maximumFractionDigits: 2,
               })} €</td>
             </tr>
             <tr>
               <td>Gesamtsumme der Quartalszinsen:</td>
-              <td>${totalQuarterly.toLocaleString("de-DE", {
+              <td>${activeTotalQuarterly.toLocaleString("de-DE", {
                 minimumFractionDigits: 2,
                 maximumFractionDigits: 2,
               })} €</td>
             </tr>
             <tr>
               <td>Gesamtsumme der Bezahlten Zinsen:</td>
-              <td>${totalPaid.toLocaleString("de-DE", {
+              <td>${activeTotalPaid.toLocaleString("de-DE", {
                 minimumFractionDigits: 2,
                 maximumFractionDigits: 2,
               })} €</td>
             </tr>
             <tr>
               <td>Gesamtsumme der Rückstellungen:</td>
-              <td>${totalReserve.toLocaleString("de-DE", {
+              <td>${activeTotalReserve.toLocaleString("de-DE", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })} €</td>
+            </tr>
+          </table>
+        </div>
+
+        <h2>Abgelaufene Konten</h2>
+        ${expiredTableHTML}
+        <div class="summary">
+          <h2>Abgelaufene Konten Zusammenfassung</h2>
+          <table>
+            <tr>
+              <td>Gesamtsumme der Nominalwerte:</td>
+              <td>${expiredTotalNominal.toLocaleString("de-DE", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })} €</td>
+            </tr>
+            <tr>
+              <td>Gesamtsumme der Zinsen gesamte Laufzeit:</td>
+              <td>${expiredTotalSingleInterest.toLocaleString("de-DE", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })} €</td>
+            </tr>
+            <tr>
+              <td>Gesamtsumme der kummulierten Zinsen bis Stichtag:</td>
+              <td>${expiredTotalAccumulated.toLocaleString("de-DE", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })} €</td>
+            </tr>
+            <tr>
+              <td>Gesamtsumme der Quartalszinsen:</td>
+              <td>${expiredTotalQuarterly.toLocaleString("de-DE", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })} €</td>
+            </tr>
+            <tr>
+              <td>Gesamtsumme der Bezahlten Zinsen:</td>
+              <td>${expiredTotalPaid.toLocaleString("de-DE", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })} €</td>
+            </tr>
+            <tr>
+              <td>Gesamtsumme der Rückstellungen:</td>
+              <td>${expiredTotalReserve.toLocaleString("de-DE", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })} €</td>
+            </tr>
+          </table>
+        </div>
+
+        <div class="summary">
+          <h2>Alle Konten Zusammenfassung</h2>
+          <table>
+            <tr>
+              <td>Gesamtsumme der Nominalwerte:</td>
+              <td>${allTotalNominal.toLocaleString("de-DE", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })} €</td>
+            </tr>
+            <tr>
+              <td>Gesamtsumme der Zinsen gesamte Laufzeit:</td>
+              <td>${allTotalSingleInterest.toLocaleString("de-DE", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })} €</td>
+            </tr>
+            <tr>
+              <td>Gesamtsumme der kummulierten Zinsen bis Stichtag:</td>
+              <td>${allTotalAccumulated.toLocaleString("de-DE", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })} €</td>
+            </tr>
+            <tr>
+              <td>Gesamtsumme der Quartalszinsen:</td>
+              <td>${allTotalQuarterly.toLocaleString("de-DE", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })} €</td>
+            </tr>
+            <tr>
+              <td>Gesamtsumme der Bezahlten Zinsen:</td>
+              <td>${allTotalPaid.toLocaleString("de-DE", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })} €</td>
+            </tr>
+            <tr>
+              <td>Gesamtsumme der Rückstellungen:</td>
+              <td>${allTotalReserve.toLocaleString("de-DE", {
                 minimumFractionDigits: 2,
                 maximumFractionDigits: 2,
               })} €</td>

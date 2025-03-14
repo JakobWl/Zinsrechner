@@ -24,22 +24,22 @@
     "antd": "^5.24.3",
     "antd-style": "^3.7.1",
     "dayjs": "^1.11.13",
-    "electron-updater": "^6.6.1"
+    "electron-updater": "^6.6.2"
   },
   "devDependencies": {
     "@playwright/test": "^1.51.0",
     "@types/react": "^19.0.10",
     "@types/react-dom": "^19.0.4",
     "@vitejs/plugin-react": "^4.3.4",
-    "electron": "^35.0.0",
-    "electron-builder": "^26.0.10",
-    "electron-builder-squirrel-windows": "^26.0.10",
+    "electron": "^35.0.1",
+    "electron-builder": "^26.0.11",
+    "electron-builder-squirrel-windows": "^26.0.11",
     "less": "^4.2.2",
     "prettier": "^3.5.3",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "typescript": "^5.8.2",
-    "vite": "^6.2.1",
+    "vite": "^6.2.2",
     "vite-plugin-electron": "^0.29.0",
     "vite-plugin-electron-renderer": "^0.14.6"
   }
