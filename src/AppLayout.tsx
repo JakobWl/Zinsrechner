@@ -9,13 +9,19 @@ import {
   Input,
   InputNumber,
   Layout,
+  Popconfirm,
   Row,
   Table,
   theme,
   Tooltip,
   Typography,
 } from "antd";
-import { MoonOutlined, SettingOutlined, SunOutlined } from "@ant-design/icons";
+import {
+  DeleteOutlined,
+  MoonOutlined,
+  SettingOutlined,
+  SunOutlined,
+} from "@ant-design/icons";
 import { RangePickerProps } from "antd/lib/date-picker";
 
 interface KontoData {
@@ -26,6 +32,7 @@ interface KontoData {
   zinssatz: number;
   nominal: number;
   zinsen?: number;
+  kommulierteZinsen?: number;
   quarterlyZinsen?: number;
   verbuchteRueckstellung?: number;
   kommulierteSumme?: number;
@@ -82,6 +89,7 @@ export function AppLayout({
       startDatum,
       endDatum,
       zinssatz: parseFloat(zinssatz),
+      kommulierteZinsen: 0,
       nominal: parseFloat(nominal),
       verbuchteRueckstellung: 0,
       kommulierteSumme: 0,
@@ -150,9 +158,15 @@ export function AppLayout({
     }
   };
 
+  const calculateAccumulatedInterest = (entry: KontoData) => {
+    if (!quartalsEnde) return 0;
+    if (quartalsEnde.isBefore(entry.startDatum)) return 0;
+    return calculateInterest(entry, entry.startDatum, quartalsEnde);
+  };
+
   const handlePrint = () => {
     if (!data) return;
-    const now = dayjs(); // aktuelles Datum
+    const now = dayjs();
 
     // Daten in aktive und abgelaufene Konten aufteilen
     const activeData = data.filter(
@@ -180,20 +194,20 @@ export function AppLayout({
 
       let tableContent = "";
       Object.entries(groupedByBank).forEach(([bankName, entries]) => {
-        // Erstelle die Zeilen für die jeweilige Bankgruppe
         const groupRows = entries
           .map((entry) => {
-            const monate = entry.endDatum.diff(entry.startDatum, "month");
+            const months = entry.endDatum.diff(entry.startDatum, "month");
             const singleInterest = calculateSingleInterest(entry);
+            const accumulatedInterest = calculateAccumulatedInterest(entry);
             const quarterlyInterest = calculateQuarterlySingleInterest(entry);
-            const verbuchte = entry.verbuchteRueckstellung || 0;
-            const kommulierte = entry.kommulierteSumme || 0;
+            const paid = entry.verbuchteRueckstellung || 0;
+            const reserve = accumulatedInterest - paid;
             return `
             <tr>
               <td>${entry.kontoNumber}</td>
               <td>${entry.startDatum.format("DD.MM.YYYY")}</td>
               <td>${entry.endDatum.format("DD.MM.YYYY")}</td>
-              <td>${monate}</td>
+              <td>${months}</td>
               <td>${entry.zinssatz}</td>
               <td class="align-right">${entry.nominal.toLocaleString("de-DE", {
                 minimumFractionDigits: 2,
@@ -203,6 +217,13 @@ export function AppLayout({
                 minimumFractionDigits: 2,
                 maximumFractionDigits: 2,
               })}</td>
+              <td class="align-right">${accumulatedInterest.toLocaleString(
+                "de-DE",
+                {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                },
+              )}</td>
               <td class="align-right">${quarterlyInterest.toLocaleString(
                 "de-DE",
                 {
@@ -210,11 +231,11 @@ export function AppLayout({
                   maximumFractionDigits: 2,
                 },
               )}</td>
-              <td class="align-right">${verbuchte.toLocaleString("de-DE", {
+              <td class="align-right">${paid.toLocaleString("de-DE", {
                 minimumFractionDigits: 2,
                 maximumFractionDigits: 2,
               })}</td>
-              <td class="align-right">${kommulierte.toLocaleString("de-DE", {
+              <td class="align-right">${reserve.toLocaleString("de-DE", {
                 minimumFractionDigits: 2,
                 maximumFractionDigits: 2,
               })}</td>
@@ -223,36 +244,37 @@ export function AppLayout({
           })
           .join("");
 
-        // Berechne die Summen für die Gruppe
+        // Calculate group totals
         const groupNominal = entries.reduce(
           (sum, entry) => sum + entry.nominal,
           0,
         );
-        const groupInterest = entries.reduce(
+        const groupSingleInterest = entries.reduce(
           (sum, entry) => sum + calculateSingleInterest(entry),
+          0,
+        );
+        const groupAccumulated = entries.reduce(
+          (sum, entry) => sum + calculateAccumulatedInterest(entry),
           0,
         );
         const groupQuarterly = entries.reduce(
           (sum, entry) => sum + calculateQuarterlySingleInterest(entry),
           0,
         );
-        const groupKommulierte = entries.reduce(
-          (sum, entry) =>
-            sum +
-            (calculateQuarterlySingleInterest(entry) -
-              (entry.verbuchteRueckstellung || 0)),
+        const groupPaid = entries.reduce(
+          (sum, entry) => sum + (entry.verbuchteRueckstellung || 0),
           0,
         );
+        const groupReserve = groupAccumulated - groupPaid;
 
-        // Füge die Gruppe als <tbody> hinzu
         tableContent += `
         <tbody>
-          <!-- Gruppenkopfzeile mit Bankname -->
+          <!-- Group header with bank name -->
           <tr class="group-header">
-            <td colspan="10" class="bank-title">${bankName}</td>
+            <td colspan="11" class="bank-title">${bankName}</td>
           </tr>
           ${groupRows}
-          <!-- Gruppensummen -->
+          <!-- Group totals -->
           <tr style="font-weight: bold;">
             <td>Summe</td>
             <td></td>
@@ -263,7 +285,14 @@ export function AppLayout({
               minimumFractionDigits: 2,
               maximumFractionDigits: 2,
             })}</td>
-            <td class="align-right">${groupInterest.toLocaleString("de-DE", {
+            <td class="align-right">${groupSingleInterest.toLocaleString(
+              "de-DE",
+              {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              },
+            )}</td>
+            <td class="align-right">${groupAccumulated.toLocaleString("de-DE", {
               minimumFractionDigits: 2,
               maximumFractionDigits: 2,
             })}</td>
@@ -271,8 +300,11 @@ export function AppLayout({
               minimumFractionDigits: 2,
               maximumFractionDigits: 2,
             })}</td>
-            <td></td>
-            <td class="align-right">${groupKommulierte.toLocaleString("de-DE", {
+            <td class="align-right">${groupPaid.toLocaleString("de-DE", {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })}</td>
+            <td class="align-right">${groupReserve.toLocaleString("de-DE", {
               minimumFractionDigits: 2,
               maximumFractionDigits: 2,
             })}</td>
@@ -283,28 +315,33 @@ export function AppLayout({
       return tableContent;
     };
 
-    // Erstelle Inhalte für beide Tabellen
+    // Build HTML tables for active and expired accounts
     const activeTableContent = buildTableContent(activeData);
     const expiredTableContent = buildTableContent(expiredData);
 
-    // Berechne Gesamtsummen (hier nur für aktive Konten – passe dies ggf. an)
+    // Calculate overall totals for active accounts
     const totalNominal = activeData.reduce(
       (sum, entry) => sum + entry.nominal,
       0,
     );
-    const totalInterest = activeData.reduce(
+    const totalSingleInterest = activeData.reduce(
       (sum, entry) => sum + calculateSingleInterest(entry),
       0,
     );
-    const totalQuarterlyInterest =
-      quartalsBeginn && quartalsEnde
-        ? activeData.reduce(
-            (sum, entry) => sum + calculateQuarterlySingleInterest(entry),
-            0,
-          )
-        : null;
+    const totalAccumulated = activeData.reduce(
+      (sum, entry) => sum + calculateAccumulatedInterest(entry),
+      0,
+    );
+    const totalQuarterly = activeData.reduce(
+      (sum, entry) => sum + calculateQuarterlySingleInterest(entry),
+      0,
+    );
+    const totalPaid = activeData.reduce(
+      (sum, entry) => sum + (entry.verbuchteRueckstellung || 0),
+      0,
+    );
+    const totalReserve = totalAccumulated - totalPaid;
 
-    // Baue die HTML-Tabellen für aktive und abgelaufene Konten
     const activeTableHTML = `
     <table>
       <thead>
@@ -312,13 +349,14 @@ export function AppLayout({
           <th>Konto Nummer</th>
           <th>Startdatum</th>
           <th>Enddatum</th>
-          <th>Mon.</th>
-          <th>Zins</br>satz (%)</th>
+          <th>Lfz. Mon.</th>
+          <th>Zins<br/>satz (%)</th>
           <th>Nominal (€)</th>
-          <th>Zinsen (€)</th>
-          <th>Quartalszinsen (€)</th>
-          <th>Verbuchte Rückstellung (€)</th>
-          <th>Kommulierte Summe (€)</th>
+          <th>Zinsen gesamte Laufzeit (€)</th>
+          <th>Kommulierte Zinsen bis Stichtag (€)</th>
+          <th>Zu buchende Quartalszinsen (€)</th>
+          <th>Bezahlte Zinsen (€)</th>
+          <th>Rückstellung (€)</th>
         </tr>
       </thead>
       ${activeTableContent}
@@ -332,20 +370,21 @@ export function AppLayout({
           <th>Konto Nummer</th>
           <th>Startdatum</th>
           <th>Enddatum</th>
-          <th>Mon.</th>
-          <th>Zins</br>satz (%)</th>
+          <th>Lfz. Mon.</th>
+          <th>Zins<br/>satz (%)</th>
           <th>Nominal (€)</th>
-          <th>Zinsen (€)</th>
-          <th>Quartalszinsen (€)</th>
-          <th>Verbuchte Rückstellung (€)</th>
-          <th>Kommulierte Summe (€)</th>
+          <th>Zinsen gesamte Laufzeit (€)</th>
+          <th>Kommulierte Zinsen bis Stichtag (€)</th>
+          <th>Zu buchende Quartalszinsen (€)</th>
+          <th>Bezahlte Zinsen (€)</th>
+          <th>Rückstellung (€)</th>
         </tr>
       </thead>
       ${expiredTableContent}
     </table>
   `;
 
-    // Finaler HTML-Inhalt inkl. beider Tabellen
+    // Build the final HTML content with an updated summary
     const contentHTML = `
     <html lang="de">
       <head>
@@ -424,23 +463,40 @@ export function AppLayout({
               })} €</td>
             </tr>
             <tr>
-              <td>Gesamtsumme der Zinsen:</td>
-              <td>${totalInterest.toLocaleString("de-DE", {
+              <td>Gesamtsumme der Zinsen gesamte Laufzeit:</td>
+              <td>${totalSingleInterest.toLocaleString("de-DE", {
                 minimumFractionDigits: 2,
                 maximumFractionDigits: 2,
               })} €</td>
             </tr>
-            ${
-              totalQuarterlyInterest !== null
-                ? `<tr>
-                     <td>Gesamtsumme der Quartalszinsen:</td>
-                     <td>${totalQuarterlyInterest.toLocaleString("de-DE", {
-                       minimumFractionDigits: 2,
-                       maximumFractionDigits: 2,
-                     })} €</td>
-                   </tr>`
-                : ""
-            }
+            <tr>
+              <td>Gesamtsumme der kummulierten Zinsen bis Stichtag:</td>
+              <td>${totalAccumulated.toLocaleString("de-DE", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })} €</td>
+            </tr>
+            <tr>
+              <td>Gesamtsumme der Quartalszinsen:</td>
+              <td>${totalQuarterly.toLocaleString("de-DE", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })} €</td>
+            </tr>
+            <tr>
+              <td>Gesamtsumme der Bezahlten Zinsen:</td>
+              <td>${totalPaid.toLocaleString("de-DE", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })} €</td>
+            </tr>
+            <tr>
+              <td>Gesamtsumme der Rückstellungen:</td>
+              <td>${totalReserve.toLocaleString("de-DE", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })} €</td>
+            </tr>
           </table>
         </div>
       </body>
@@ -623,8 +679,23 @@ export function AppLayout({
                           })
                       : "0,00"}
                   </Table.Summary.Cell>
-                  {/* Column 7: Quartalszinsen (€) */}
+                  {/* Column 7: Kommulierte Zinsen bis Stichtag */}
                   <Table.Summary.Cell align="end" index={7}>
+                    {data && quartalsEnde
+                      ? data
+                          .reduce(
+                            (sum, entry) =>
+                              sum + calculateAccumulatedInterest(entry),
+                            0,
+                          )
+                          .toLocaleString("de-DE", {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })
+                      : "0,00"}
+                  </Table.Summary.Cell>
+                  {/* Column 8: Quartalszinsen (€) */}
+                  <Table.Summary.Cell align="end" index={8}>
                     {data && quartalsBeginn && quartalsEnde
                       ? data
                           .reduce(
@@ -638,10 +709,23 @@ export function AppLayout({
                           })
                       : "0,00"}
                   </Table.Summary.Cell>
-                  {/* Column 8: Verbuchte Rückstellung */}
-                  <Table.Summary.Cell index={8} />
-                  {/* Column 9: Kommulierte Summe */}
+                  {/* Column 9: Bezahlte Zinsen */}
                   <Table.Summary.Cell align="end" index={9}>
+                    {data
+                      ? data
+                          .reduce(
+                            (sum, entry) =>
+                              sum + (entry.verbuchteRueckstellung || 0),
+                            0,
+                          )
+                          .toLocaleString("de-DE", {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })
+                      : "0,00"}
+                  </Table.Summary.Cell>
+                  {/* Column 10: Rückstellung */}
+                  <Table.Summary.Cell align="end" index={10}>
                     {data
                       ? data
                           .reduce(
@@ -657,8 +741,8 @@ export function AppLayout({
                           })
                       : "0,00"}
                   </Table.Summary.Cell>
-                  {/* Column 10: Aktionen */}
-                  <Table.Summary.Cell index={10} />
+                  {/* Column 11: Aktionen */}
+                  <Table.Summary.Cell index={11} />
                 </Table.Summary.Row>
               </Table.Summary>
             )}
@@ -709,10 +793,9 @@ export function AppLayout({
               }
             />
             <Table.Column
-              fixed="right"
               width={120}
               align="right"
-              title="Zinsen (€)"
+              title="Zinsen gesamte Laufzeit (€)"
               key="zinsen"
               render={(_, record: KontoData) => {
                 const interest = calculateSingleInterest(record);
@@ -724,9 +807,21 @@ export function AppLayout({
             />
             <Table.Column
               width={150}
-              fixed="right"
               align="right"
-              title="Quartalszinsen (€)"
+              title="Kommulierte Zinsen bis Stichtag"
+              key="kommulierteZinsen"
+              render={(_, record: KontoData) => {
+                const interest = calculateAccumulatedInterest(record);
+                return interest.toLocaleString("de-DE", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                });
+              }}
+            />
+            <Table.Column
+              width={150}
+              align="right"
+              title="Zu buchende Quartalszinsen (€)"
               key="quarterlyZinsen"
               render={(_, record: KontoData) => {
                 const quarterlyInterest =
@@ -738,15 +833,16 @@ export function AppLayout({
               }}
             />
             <Table.Column
-              width={150}
-              fixed="right"
+              width={160}
               align="right"
-              title="Verbuchte Rückstellung"
+              title="Bezahlte Zinsen (€)"
               key="verbuchteRueckstellung"
               render={(_, record: KontoData, index: number) => (
                 <InputNumber
+                  changeOnWheel
                   value={record.verbuchteRueckstellung}
                   min={0}
+                  decimalSeparator=","
                   onChange={(value) => {
                     if (!data) return;
                     const newData = [...data];
@@ -760,15 +856,14 @@ export function AppLayout({
               )}
             />
             <Table.Column
-              fixed="right"
               width={150}
               align="right"
-              title="Kommulierte Summe"
+              title="Rückstellung (€)"
               key="kommulierteSumme"
               render={(_, record: KontoData) => {
-                const quarterly = calculateQuarterlySingleInterest(record);
+                const kommulierte = calculateAccumulatedInterest(record);
                 const verbuchte = record.verbuchteRueckstellung || 0;
-                const result = quarterly - verbuchte;
+                const result = kommulierte - verbuchte;
                 return result.toLocaleString("de-DE", {
                   minimumFractionDigits: 2,
                   maximumFractionDigits: 2,
@@ -776,14 +871,20 @@ export function AppLayout({
               }}
             />
             <Table.Column
-              fixed="right"
               width={80}
               title="Aktionen"
+              align="center"
               key="aktionen"
+              fixed="right"
               render={(_, __, index: number) => (
-                <Button danger onClick={() => handleDeleteKonto(index)}>
-                  Löschen
-                </Button>
+                <Popconfirm
+                  title="Sind Sie sicher, dass Sie dieses Konto löschen möchten?"
+                  onConfirm={() => handleDeleteKonto(index)}
+                  okText="Ja"
+                  cancelText="Nein"
+                >
+                  <Button danger icon={<DeleteOutlined />} />
+                </Popconfirm>
               )}
             />
           </Table>
