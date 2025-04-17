@@ -143,6 +143,9 @@ export function AppLayout({
     if (quartalsBeginn.isBefore(entry.startDatum)) {
       return calculateInterest(entry, entry.startDatum, quartalsEnde);
     }
+    if (quartalsEnde.isAfter(entry.endDatum)) {
+      return calculateInterest(entry, quartalsBeginn, entry.endDatum);
+    }
     return calculateInterest(entry, quartalsBeginn, quartalsEnde);
   };
 
@@ -161,6 +164,9 @@ export function AppLayout({
   const calculateAccumulatedInterest = (entry: KontoData) => {
     if (!quartalsEnde) return 0;
     if (quartalsEnde.isBefore(entry.startDatum)) return 0;
+    if (quartalsEnde.isAfter(entry.endDatum)) {
+      return calculateInterest(entry, entry.startDatum, entry.endDatum);
+    }
     return calculateInterest(entry, entry.startDatum, quartalsEnde);
   };
 
