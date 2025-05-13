@@ -886,7 +886,9 @@ export function AppLayout({
           <Table
             className="table"
             dataSource={data}
-            rowKey={(record, idx) => record.bankName + record.kontoNumber + idx}
+            rowKey={(record) =>
+              record.bankName + record.kontoNumber + crypto.randomUUID()
+            }
             pagination={false}
             scroll={{ x: "max-content" }}
             rowClassName={(record) => {
