@@ -29,34 +29,34 @@ describe('Interest Calculation Tests', () => {
     test('should calculate simple interest for full non-leap year', () => {
       const entry = createEntry(1000, 5);
       const startDate = dayjs('2023-01-01');
-      const endDate = dayjs('2023-12-31'); // 364 days (not 365!)
+      const endDate = dayjs('2023-12-31'); // 365 days (inclusive counting)
       
       const result = calculateInterest(entry, startDate, endDate);
       
-      // Expected: 1000 * 0.05 * (364/365) = 49.86
-      expect(result).toBeCloseTo(49.86, 2);
+      // Expected: 1000 * 0.05 * (365/365) = 50.00
+      expect(result).toBeCloseTo(50.00, 2);
     });
 
     test('should calculate simple interest for full leap year', () => {
       const entry = createEntry(1000, 5);
       const startDate = dayjs('2024-01-01');
-      const endDate = dayjs('2024-12-31'); // 365 days in leap year
+      const endDate = dayjs('2024-12-31'); // 366 days in leap year (inclusive counting)
       
       const result = calculateInterest(entry, startDate, endDate);
       
-      // Expected: 1000 * 0.05 * (365/366) = 49.86
-      expect(result).toBeCloseTo(49.86, 2);
+      // Expected: 1000 * 0.05 * (366/366) = 50.00
+      expect(result).toBeCloseTo(50.00, 2);
     });
 
     test('should calculate interest for half year period', () => {
       const entry = createEntry(1000, 5);
       const startDate = dayjs('2023-01-01');
-      const endDate = dayjs('2023-07-01'); // 181 days
+      const endDate = dayjs('2023-07-01'); // 182 days (inclusive counting)
       
       const result = calculateInterest(entry, startDate, endDate);
       
-      // Expected: 1000 * 0.05 * (181/365) = 24.79
-      expect(result).toBeCloseTo(24.79, 2);
+      // Expected: 1000 * 0.05 * (182/365) = 24.93
+      expect(result).toBeCloseTo(24.93, 2);
     });
   });
 
@@ -69,8 +69,8 @@ describe('Interest Calculation Tests', () => {
       
       const result = calculateInterest(entry, startDate, endDate);
       
-      // Expected: 1000 * 0.05 * (29/366) = 3.96
-      expect(result).toBeCloseTo(3.96, 2);
+      // Expected: 1000 * 0.05 * (30/366) = 4.10 (inclusive counting)
+      expect(result).toBeCloseTo(4.10, 2);
     });
 
     test('should handle February in non-leap year', () => {
@@ -80,30 +80,30 @@ describe('Interest Calculation Tests', () => {
       
       const result = calculateInterest(entry, startDate, endDate);
       
-      // Expected: 1000 * 0.05 * (28/365) = 3.84
-      expect(result).toBeCloseTo(3.84, 2);
+      // Expected: 1000 * 0.05 * (29/365) = 3.97 (inclusive counting)
+      expect(result).toBeCloseTo(3.97, 2);
     });
 
     test('should handle period starting on leap day', () => {
       const entry = createEntry(1000, 5);
       const startDate = dayjs('2024-02-29');
-      const endDate = dayjs('2024-03-01'); // 1 day
+      const endDate = dayjs('2024-03-01'); // 2 days (inclusive counting)
       
       const result = calculateInterest(entry, startDate, endDate);
       
-      // Expected: 1000 * 0.05 * (1/366) = 0.14
-      expect(result).toBeCloseTo(0.14, 2);
+      // Expected: 1000 * 0.05 * (2/366) = 0.27
+      expect(result).toBeCloseTo(0.27, 2);
     });
 
     test('should handle period ending on leap day', () => {
       const entry = createEntry(1000, 5);
       const startDate = dayjs('2024-02-28');
-      const endDate = dayjs('2024-02-29'); // 1 day
+      const endDate = dayjs('2024-02-29'); // 2 days (inclusive counting)
       
       const result = calculateInterest(entry, startDate, endDate);
       
-      // Expected: 1000 * 0.05 * (1/366) = 0.14
-      expect(result).toBeCloseTo(0.14, 2);
+      // Expected: 1000 * 0.05 * (2/366) = 0.27
+      expect(result).toBeCloseTo(0.27, 2);
     });
 
     test('should handle spanning leap day (Jan 15 - Mar 15, 2024)', () => {
@@ -113,8 +113,8 @@ describe('Interest Calculation Tests', () => {
       
       const result = calculateInterest(entry, startDate, endDate);
       
-      // Expected: 1000 * 0.05 * (60/366) = 8.20
-      expect(result).toBeCloseTo(8.20, 2);
+      // Expected: 1000 * 0.05 * (61/366) = 8.33 (inclusive counting)
+      expect(result).toBeCloseTo(8.33, 2);
     });
   });
 
@@ -128,10 +128,10 @@ describe('Interest Calculation Tests', () => {
       const result = calculateInterest(entry, startDate, endDate);
       
       // This should use weighted average calculation
-      // 31 days in 2024 (366-day year) + 30 days in 2025 (365-day year)
-      // Weighted average: (31*366 + 30*365) / 61 = 365.49
-      // Expected: 1000 * 0.05 * (61/365.49) = 8.35
-      expect(result).toBeCloseTo(8.35, 1); // Allow 0.1 tolerance for weighted calculation
+      // 32 days in 2024 (366-day year) + 31 days in 2025 (365-day year) - inclusive counting
+      // Weighted average: (32*366 + 31*365) / 62 = 365.51
+      // Expected: 1000 * 0.05 * (62/365.51) = 8.48
+      expect(result).toBeCloseTo(8.48, 1); // Allow 0.1 tolerance for weighted calculation
     });
 
     test('should handle period from non-leap year to leap year', () => {
@@ -141,10 +141,10 @@ describe('Interest Calculation Tests', () => {
       
       const result = calculateInterest(entry, startDate, endDate);
       
-      // 31 days in 2023 (365-day year) + 30 days in 2024 (366-day year)
-      // Weighted average: (31*365 + 30*366) / 61 = 365.49
-      // Expected: 1000 * 0.05 * (61/365.49) = 8.35
-      expect(result).toBeCloseTo(8.35, 1);
+      // 32 days in 2023 (365-day year) + 31 days in 2024 (366-day year) - inclusive counting
+      // Weighted average: (32*365 + 31*366) / 62 = 365.49
+      // Expected: 1000 * 0.05 * (62/365.49) = 8.48
+      expect(result).toBeCloseTo(8.48, 1);
     });
 
     test('should handle New Year boundary (Dec 31 - Jan 1)', () => {
@@ -162,20 +162,10 @@ describe('Interest Calculation Tests', () => {
 
   describe('4. Edge Cases - Date Boundaries', () => {
     
-    test('should return zero for same day period', () => {
+    test('should calculate interest for same day period', () => {
       const entry = createEntry(1000, 5);
       const startDate = dayjs('2024-01-01');
-      const endDate = dayjs('2024-01-01'); // 0 days
-      
-      const result = calculateInterest(entry, startDate, endDate);
-      
-      expect(result).toBe(0.00);
-    });
-
-    test('should calculate interest for one day period', () => {
-      const entry = createEntry(1000, 5);
-      const startDate = dayjs('2024-01-01');
-      const endDate = dayjs('2024-01-02'); // 1 day
+      const endDate = dayjs('2024-01-01'); // 1 day (inclusive counting)
       
       const result = calculateInterest(entry, startDate, endDate);
       
@@ -183,14 +173,26 @@ describe('Interest Calculation Tests', () => {
       expect(result).toBeCloseTo(0.14, 2);
     });
 
-    test('should handle end of month boundaries', () => {
+    test('should calculate interest for one day period', () => {
       const entry = createEntry(1000, 5);
-      const startDate = dayjs('2024-01-31');
-      const endDate = dayjs('2024-02-01'); // 1 day
+      const startDate = dayjs('2024-01-01');
+      const endDate = dayjs('2024-01-02'); // 2 days (inclusive counting)
       
       const result = calculateInterest(entry, startDate, endDate);
       
-      expect(result).toBeCloseTo(0.14, 2);
+      // Expected: 1000 * 0.05 * (2/366) = 0.27
+      expect(result).toBeCloseTo(0.27, 2);
+    });
+
+    test('should handle end of month boundaries', () => {
+      const entry = createEntry(1000, 5);
+      const startDate = dayjs('2024-01-31');
+      const endDate = dayjs('2024-02-01'); // 2 days (inclusive counting)
+      
+      const result = calculateInterest(entry, startDate, endDate);
+      
+      // Expected: 1000 * 0.05 * (2/366) = 0.27
+      expect(result).toBeCloseTo(0.27, 2);
     });
   });
 
@@ -203,8 +205,8 @@ describe('Interest Calculation Tests', () => {
       
       const result = calculateInterest(entry, startDate, endDate);
       
-      // Expected: 1000 * 0.05 * (364/365) = 49.86
-      expect(result).toBeCloseTo(49.86, 2);
+      // Expected: 1000 * 0.05 * (365/365) = 50.00 (inclusive counting)
+      expect(result).toBeCloseTo(50.00, 2);
     });
 
     test('should handle century year that IS a leap year (2000)', () => {
@@ -214,8 +216,8 @@ describe('Interest Calculation Tests', () => {
       
       const result = calculateInterest(entry, startDate, endDate);
       
-      // Expected: 1000 * 0.05 * (365/366) = 49.86
-      expect(result).toBeCloseTo(49.86, 2);
+      // Expected: 1000 * 0.05 * (366/366) = 50.00 (inclusive counting)
+      expect(result).toBeCloseTo(50.00, 2);
     });
   });
 
@@ -228,8 +230,8 @@ describe('Interest Calculation Tests', () => {
       
       const result = calculateInterest(entry, startDate, endDate);
       
-      // Expected: 1000 * 0.03333 * (100/365) = 9.132... → 9.13
-      expect(result).toBe(9.13);
+      // Expected: 1000 * 0.03333 * (101/365) = 9.22 (inclusive counting)
+      expect(result).toBe(9.22);
     });
 
     test('should handle very small amounts', () => {
@@ -250,22 +252,22 @@ describe('Interest Calculation Tests', () => {
       
       const result = calculateInterest(entry, startDate, endDate);
       
-      // Expected: 1000000 * 0.05 * (364/365) = 49863.01
-      expect(result).toBeCloseTo(49863.01, 2);
+      // Expected: 1000000 * 0.05 * (365/365) = 50000.00 (inclusive counting)
+      expect(result).toBeCloseTo(50000.00, 2);
     });
 
     test('should handle rounding edge cases', () => {
       // Test case that results in exactly .125 (banker's rounding test)
       const entry = createEntry(1000, 4.5625);
       const startDate = dayjs('2023-01-01');
-      const endDate = dayjs('2023-01-02'); // 1 day
+      const endDate = dayjs('2023-01-02'); // 2 days (inclusive counting)
       
       const result = calculateInterest(entry, startDate, endDate);
       
-      // 1000 * 0.045625 * (1/365) = 0.125 → should round to 0.13 or 0.12
+      // 1000 * 0.045625 * (2/365) = 0.25 → should round to 0.25
       expect(typeof result).toBe('number');
-      expect(result).toBeGreaterThanOrEqual(0.12);
-      expect(result).toBeLessThanOrEqual(0.13);
+      expect(result).toBeGreaterThanOrEqual(0.24);
+      expect(result).toBeLessThanOrEqual(0.26);
     });
   });
 
@@ -288,8 +290,8 @@ describe('Interest Calculation Tests', () => {
       
       const result = calculateInterest(entry, startDate, endDate);
       
-      // Expected: 1000 * 1.00 * (365/366) = 997.27
-      expect(result).toBeCloseTo(997.27, 2);
+      // Expected: 1000 * 1.00 * (366/366) = 1000.00 (inclusive counting)
+      expect(result).toBeCloseTo(1000.00, 2);
     });
 
     test('should handle fractional interest rates', () => {
@@ -299,8 +301,8 @@ describe('Interest Calculation Tests', () => {
       
       const result = calculateInterest(entry, startDate, endDate);
       
-      // Expected: 1000 * 0.025 * (364/365) = 24.93
-      expect(result).toBeCloseTo(24.93, 2);
+      // Expected: 1000 * 0.025 * (365/365) = 25.00 (inclusive counting)
+      expect(result).toBeCloseTo(25.00, 2);
     });
   });
 
@@ -313,8 +315,8 @@ describe('Interest Calculation Tests', () => {
       
       const result = calculateInterest(entry, startDate, endDate);
       
-      // Expected: 1000 * 0.05 * (90/366) = 12.30
-      expect(result).toBeCloseTo(12.30, 2);
+      // Expected: 1000 * 0.05 * (91/366) = 12.43 (inclusive counting)
+      expect(result).toBeCloseTo(12.43, 2);
     });
 
     test('should calculate Q1 interest in non-leap year', () => {
@@ -324,8 +326,8 @@ describe('Interest Calculation Tests', () => {
       
       const result = calculateInterest(entry, startDate, endDate);
       
-      // Expected: 1000 * 0.05 * (89/365) = 12.19
-      expect(result).toBeCloseTo(12.19, 2);
+      // Expected: 1000 * 0.05 * (90/365) = 12.33 (inclusive counting)
+      expect(result).toBeCloseTo(12.33, 2);
     });
 
     test('should calculate Q4 spanning year end', () => {
@@ -335,8 +337,8 @@ describe('Interest Calculation Tests', () => {
       
       const result = calculateInterest(entry, startDate, endDate);
       
-      // Expected: 1000 * 0.05 * (91/366) = 12.43
-      expect(result).toBeCloseTo(12.43, 2);
+      // Expected: 1000 * 0.05 * (92/366) = 12.57 (inclusive counting)
+      expect(result).toBeCloseTo(12.57, 2);
     });
   });
 
@@ -349,8 +351,8 @@ describe('Interest Calculation Tests', () => {
       
       const result = calculateInterest(entry, startDate, endDate);
       
-      // Should be close to 100.00 for 2 years
-      expect(result).toBeCloseTo(99.86, 1);
+      // Should be close to 100.00 for 2 years (inclusive counting)
+      expect(result).toBeCloseTo(100.00, 1);
     });
 
     test('should handle period including one leap year', () => {
@@ -360,8 +362,8 @@ describe('Interest Calculation Tests', () => {
       
       const result = calculateInterest(entry, startDate, endDate);
       
-      // Should use weighted average calculation
-      expect(result).toBeCloseTo(99.86, 1);
+      // Should use weighted average calculation (inclusive counting)
+      expect(result).toBeCloseTo(100.00, 1);
     });
 
     test('should handle very long period (5 years)', () => {
@@ -371,8 +373,8 @@ describe('Interest Calculation Tests', () => {
       
       const result = calculateInterest(entry, startDate, endDate);
       
-      // Should be approximately 250.00 for 5 years
-      expect(result).toBeCloseTo(249.86, 1);
+      // Should be approximately 250.00 for 5 years (inclusive counting)
+      expect(result).toBeCloseTo(250.00, 1);
     });
   });
 
@@ -381,45 +383,45 @@ describe('Interest Calculation Tests', () => {
     test('should handle typical 3-month deposit', () => {
       const entry = createEntry(5000, 3.5);
       const startDate = dayjs('2024-01-01');
-      const endDate = dayjs('2024-04-01'); // 91 days
+      const endDate = dayjs('2024-04-01'); // 92 days (inclusive counting)
       
       const result = calculateInterest(entry, startDate, endDate);
       
-      // Expected: 5000 * 0.035 * (91/366) = 43.51
-      expect(result).toBeCloseTo(43.51, 2);
+      // Expected: 5000 * 0.035 * (92/366) = 43.99
+      expect(result).toBeCloseTo(43.99, 2);
     });
 
     test('should handle 6-month deposit spanning leap day', () => {
       const entry = createEntry(10000, 4.0);
       const startDate = dayjs('2024-01-01');
-      const endDate = dayjs('2024-07-01'); // 182 days
+      const endDate = dayjs('2024-07-01'); // 183 days (inclusive counting)
       
       const result = calculateInterest(entry, startDate, endDate);
       
-      // Expected: 10000 * 0.04 * (182/366) = 198.91
-      expect(result).toBeCloseTo(198.91, 2);
+      // Expected: 10000 * 0.04 * (183/366) = 200.00
+      expect(result).toBeCloseTo(200.00, 2);
     });
 
     test('should handle account opening mid-year', () => {
       const entry = createEntry(25000, 2.75);
       const startDate = dayjs('2024-07-15');
-      const endDate = dayjs('2024-12-31'); // 169 days
+      const endDate = dayjs('2024-12-31'); // 170 days (inclusive counting)
       
       const result = calculateInterest(entry, startDate, endDate);
       
-      // Expected: 25000 * 0.0275 * (169/366) = 317.45
-      expect(result).toBeCloseTo(317.45, 2);
+      // Expected: 25000 * 0.0275 * (170/366) = 319.33
+      expect(result).toBeCloseTo(319.33, 2);
     });
 
     test('should handle early account closure', () => {
       const entry = createEntry(15000, 3.25);
       const startDate = dayjs('2024-01-01');
-      const endDate = dayjs('2024-06-15'); // 166 days
+      const endDate = dayjs('2024-06-15'); // 167 days (inclusive counting)
       
       const result = calculateInterest(entry, startDate, endDate);
       
-      // Expected: 15000 * 0.0325 * (166/366) = 221.11
-      expect(result).toBeCloseTo(221.11, 2);
+      // Expected: 15000 * 0.0325 * (167/366) = 222.44
+      expect(result).toBeCloseTo(222.44, 2);
     });
   });
 
@@ -461,7 +463,21 @@ describe('Interest Calculation Tests', () => {
     });
   });
 
-  describe('12. Performance and Edge Cases', () => {
+  describe('12. Day Calculation Verification', () => {
+    test('should calculate correct days for 19.04.2023 to 22.04.2025 period', () => {
+      const entry = createEntry(1000000, 3.6);
+      const startDate = dayjs('2023-04-19');
+      const endDate = dayjs('2025-04-22');
+      
+      const result = calculateInterest(entry, startDate, endDate);
+      
+      // Manual verification: 19.04.2023 to 22.04.2025 should be 735 days (inclusive counting)
+      // Expected: 1000000 * 0.036 * (735 / weighted_year_basis) = 72394.38
+      expect(result).toBeCloseTo(72394.38, 2);
+    });
+  });
+
+  describe('13. Performance and Edge Cases', () => {
     
     test('should handle very short periods efficiently', () => {
       const entry = createEntry(1000, 5);
@@ -470,8 +486,9 @@ describe('Interest Calculation Tests', () => {
       
       const result = calculateInterest(entry, startDate, endDate);
       
-      // Should still be 0 for same day (dayjs diff in days)
-      expect(result).toBe(0.00);
+      // With inclusive counting, same day should return 1 day of interest
+      // Expected: 1000 * 0.05 * (1/366) = 0.14
+      expect(result).toBeCloseTo(0.14, 2);
     });
 
     test('should handle future dates gracefully', () => {
@@ -497,6 +514,47 @@ describe('Interest Calculation Tests', () => {
       expect(typeof result).toBe('number');
       expect(result).toBeGreaterThan(0);
     });
+  });
+});
+
+describe('13. User Reported Issue', () => {
+  test('should calculate correct days for 19.04.2023 to 22.04.2025 period', () => {
+    const entry = {
+      bankName: 'Test Bank',
+      kontoNumber: '12345',
+      startDatum: dayjs('2023-04-19'),
+      endDatum: dayjs('2025-04-22'),
+      nominal: 1000000,
+      zinssatz: 3.6
+    };
+    const startDate = dayjs('2023-04-19');
+    const endDate = dayjs('2025-04-22');
+    
+    const result = calculateInterest(entry, startDate, endDate);
+    
+    // User expects 735 days (inclusive counting)
+    // Expected: 1000000 * 0.036 * (735 / effective_year_basis) = 72394.38
+    expect(result).toBeCloseTo(72394.38, 2);
+  });
+
+  test('should calculate correct days for 19.04.2023 to 22.04.2025 period (edge case)', () => {
+    const entry = {
+      bankName: 'Test Bank',
+      kontoNumber: '12345',
+      startDatum: dayjs('2023-04-19'),
+      endDatum: dayjs('2025-04-22'),
+      nominal: 1000000,
+      zinssatz: 3.6
+    };
+    const startDate = dayjs('2023-04-19');
+    const endDate = dayjs('2025-04-22');
+    
+    const result = calculateInterest(entry, startDate, endDate);
+    
+    // Manual calculation: Should be 735 days (inclusive counting)
+    // From 19.04.2023 to 22.04.2025 using inclusive counting
+    // Expected: 1000000 * 0.036 * (735 / weighted_year_basis) = 72394.38
+    expect(result).toBeCloseTo(72394.38, 2);
   });
 });
 

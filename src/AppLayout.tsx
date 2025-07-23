@@ -70,7 +70,7 @@ export function AppLayout({
               ...entry,
               startDatum: dayjs(entry.startDatum),
               endDatum: dayjs(entry.endDatum),
-            })),
+            }))
           );
         } catch (error) {
           console.error("Error parsing JSON data:", error);
@@ -110,7 +110,6 @@ export function AppLayout({
     updatedData.splice(index, 1);
     setData(updatedData);
   };
-
 
   const calculateTotalInterest = () => {
     if (!data) return 0;
@@ -155,13 +154,13 @@ export function AppLayout({
   };
 
   const handleQuartalsRangeChange: RangePickerProps["onChange"] = (
-    dates: [start: Dayjs | null, end: Dayjs | null] | null,
+    dates: [start: Dayjs | null, end: Dayjs | null] | null
   ) => {
     console.log(
       "handleQuartalsRangeChange called with:",
       dates
         ? [dates[0]?.format("DD.MM.YYYY"), dates[1]?.format("DD.MM.YYYY")]
-        : null,
+        : null
     );
     if (dates) {
       setQuartalsBeginn(dates[0]);
@@ -191,18 +190,18 @@ export function AppLayout({
     const activeData = data.filter(
       (entry) =>
         // If both start and end of entry are overlapping with quartalsStart and quartalsEnde
-        !(entry.endDatum < quartalsBeginn || entry.startDatum > quartalsEnde),
+        !(entry.endDatum < quartalsBeginn || entry.startDatum > quartalsEnde)
     );
     const inactiveData = data.filter(
       (entry) =>
         // If both start and end of entry are not overlapping with quartalsStart and quartalsEnde
-        entry.endDatum < quartalsBeginn || entry.startDatum > quartalsEnde,
+        entry.endDatum < quartalsBeginn || entry.startDatum > quartalsEnde
     );
 
     // Build the table content for a given data array
     const buildTableContent = (dataArray: KontoData[]) => {
       const sortedData = [...dataArray].sort((a, b) =>
-        a.bankName.localeCompare(b.bankName),
+        a.bankName.localeCompare(b.bankName)
       );
       const groupedByBank = sortedData.reduce(
         (acc, entry) => {
@@ -212,7 +211,7 @@ export function AppLayout({
           acc[entry.bankName].push(entry);
           return acc;
         },
-        {} as Record<string, KontoData[]>,
+        {} as Record<string, KontoData[]>
       );
 
       let tableContent = "";
@@ -246,14 +245,14 @@ export function AppLayout({
                 {
                   minimumFractionDigits: 2,
                   maximumFractionDigits: 2,
-                },
+                }
               )}</td>
               <td class="align-right">${quarterlyInterest.toLocaleString(
                 "de-DE",
                 {
                   minimumFractionDigits: 2,
                   maximumFractionDigits: 2,
-                },
+                }
               )}</td>
               <td class="align-right">${paid.toLocaleString("de-DE", {
                 minimumFractionDigits: 2,
@@ -271,23 +270,23 @@ export function AppLayout({
         // Calculate group totals
         const groupNominal = entries.reduce(
           (sum, entry) => sum + entry.nominal,
-          0,
+          0
         );
         const groupSingleInterest = entries.reduce(
           (sum, entry) => sum + calculateSingleInterest(entry),
-          0,
+          0
         );
         const groupAccumulated = entries.reduce(
           (sum, entry) => sum + calculateAccumulatedInterest(entry),
-          0,
+          0
         );
         const groupQuarterly = entries.reduce(
           (sum, entry) => sum + calculateQuarterlySingleInterest(entry),
-          0,
+          0
         );
         const groupPaid = entries.reduce(
           (sum, entry) => sum + (entry.verbuchteRueckstellung || 0),
-          0,
+          0
         );
         const groupReserve = groupAccumulated - groupPaid;
 
@@ -314,7 +313,7 @@ export function AppLayout({
               {
                 minimumFractionDigits: 2,
                 maximumFractionDigits: 2,
-              },
+              }
             )}</td>
             <td class="align-right">${groupAccumulated.toLocaleString("de-DE", {
               minimumFractionDigits: 2,
@@ -346,46 +345,46 @@ export function AppLayout({
     // Calculate overall totals for active accounts
     const activeTotalNominal = activeData.reduce(
       (sum, entry) => sum + entry.nominal,
-      0,
+      0
     );
     const activeTotalSingleInterest = activeData.reduce(
       (sum, entry) => sum + calculateSingleInterest(entry),
-      0,
+      0
     );
     const activeTotalAccumulated = activeData.reduce(
       (sum, entry) => sum + calculateAccumulatedInterest(entry),
-      0,
+      0
     );
     const activeTotalQuarterly = activeData.reduce(
       (sum, entry) => sum + calculateQuarterlySingleInterest(entry),
-      0,
+      0
     );
     const activeTotalPaid = activeData.reduce(
       (sum, entry) => sum + (entry.verbuchteRueckstellung || 0),
-      0,
+      0
     );
     const activeTotalReserve = activeTotalAccumulated - activeTotalPaid;
 
     // Calculate overall totals for expired accounts
     const expiredTotalNominal = inactiveData.reduce(
       (sum, entry) => sum + entry.nominal,
-      0,
+      0
     );
     const expiredTotalSingleInterest = inactiveData.reduce(
       (sum, entry) => sum + calculateSingleInterest(entry),
-      0,
+      0
     );
     const expiredTotalAccumulated = inactiveData.reduce(
       (sum, entry) => sum + calculateAccumulatedInterest(entry),
-      0,
+      0
     );
     const expiredTotalQuarterly = inactiveData.reduce(
       (sum, entry) => sum + calculateQuarterlySingleInterest(entry),
-      0,
+      0
     );
     const expiredTotalPaid = inactiveData.reduce(
       (sum, entry) => sum + (entry.verbuchteRueckstellung || 0),
-      0,
+      0
     );
     const expiredTotalReserve = expiredTotalAccumulated - expiredTotalPaid;
 
@@ -393,19 +392,19 @@ export function AppLayout({
     const allTotalNominal = data.reduce((sum, entry) => sum + entry.nominal, 0);
     const allTotalSingleInterest = data.reduce(
       (sum, entry) => sum + calculateSingleInterest(entry),
-      0,
+      0
     );
     const allTotalAccumulated = data.reduce(
       (sum, entry) => sum + calculateAccumulatedInterest(entry),
-      0,
+      0
     );
     const allTotalQuarterly = data.reduce(
       (sum, entry) => sum + calculateQuarterlySingleInterest(entry),
-      0,
+      0
     );
     const allTotalPaid = data.reduce(
       (sum, entry) => sum + (entry.verbuchteRueckstellung || 0),
-      0,
+      0
     );
     const allTotalReserve = allTotalAccumulated - allTotalPaid;
 
@@ -523,7 +522,7 @@ export function AppLayout({
           ${
             quartalsBeginn && quartalsEnde
               ? `<p>Quartalsbeginn: ${quartalsBeginn.format(
-                  "DD.MM.YYYY",
+                  "DD.MM.YYYY"
                 )}, Quartalsende: ${quartalsEnde.format("DD.MM.YYYY")}</p>`
               : ""
           }
@@ -539,7 +538,7 @@ export function AppLayout({
                   {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
-                  },
+                  }
                 )} €</td>
               </tr>
               <tr>
@@ -549,7 +548,7 @@ export function AppLayout({
                   {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
-                  },
+                  }
                 )} €</td>
               </tr>
               <tr>
@@ -559,7 +558,7 @@ export function AppLayout({
                   {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
-                  },
+                  }
                 )} €</td>
               </tr>
               <tr>
@@ -569,7 +568,7 @@ export function AppLayout({
                   {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
-                  },
+                  }
                 )} €</td>
               </tr>
               <tr>
@@ -579,7 +578,7 @@ export function AppLayout({
                   {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
-                  },
+                  }
                 )} €</td>
               </tr>
               <tr>
@@ -589,7 +588,7 @@ export function AppLayout({
                   {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
-                  },
+                  }
                 )} €</td>
               </tr>
             </table>
@@ -609,7 +608,7 @@ export function AppLayout({
                   {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
-                  },
+                  }
                 )} €</td>
               </tr>
               <tr>
@@ -619,7 +618,7 @@ export function AppLayout({
                   {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
-                  },
+                  }
                 )} €</td>
               </tr>
               <tr>
@@ -629,7 +628,7 @@ export function AppLayout({
                   {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
-                  },
+                  }
                 )} €</td>
               </tr>
               <tr>
@@ -639,7 +638,7 @@ export function AppLayout({
                   {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
-                  },
+                  }
                 )} €</td>
               </tr>
               <tr>
@@ -649,7 +648,7 @@ export function AppLayout({
                   {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
-                  },
+                  }
                 )} €</td>
               </tr>
               <tr>
@@ -659,7 +658,7 @@ export function AppLayout({
                   {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
-                  },
+                  }
                 )} €</td>
               </tr>
             </table>
@@ -677,7 +676,7 @@ export function AppLayout({
                   {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
-                  },
+                  }
                 )} €</td>
               </tr>
               <tr>
@@ -687,7 +686,7 @@ export function AppLayout({
                   {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
-                  },
+                  }
                 )} €</td>
               </tr>
               <tr>
@@ -697,7 +696,7 @@ export function AppLayout({
                   {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
-                  },
+                  }
                 )} €</td>
               </tr>
               <tr>
@@ -707,7 +706,7 @@ export function AppLayout({
                   {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
-                  },
+                  }
                 )} €</td>
               </tr>
               <tr>
@@ -724,7 +723,7 @@ export function AppLayout({
                   {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
-                  },
+                  }
                 )} €</td>
               </tr>
             </table>
@@ -906,7 +905,7 @@ export function AppLayout({
                           .reduce(
                             (sum, entry) =>
                               sum + calculateSingleInterest(entry),
-                            0,
+                            0
                           )
                           .toLocaleString("de-DE", {
                             minimumFractionDigits: 2,
@@ -921,7 +920,7 @@ export function AppLayout({
                           .reduce(
                             (sum, entry) =>
                               sum + calculateAccumulatedInterest(entry),
-                            0,
+                            0
                           )
                           .toLocaleString("de-DE", {
                             minimumFractionDigits: 2,
@@ -936,7 +935,7 @@ export function AppLayout({
                           .reduce(
                             (sum, entry) =>
                               sum + calculateQuarterlySingleInterest(entry),
-                            0,
+                            0
                           )
                           .toLocaleString("de-DE", {
                             minimumFractionDigits: 2,
@@ -951,7 +950,7 @@ export function AppLayout({
                           .reduce(
                             (sum, entry) =>
                               sum + (entry.verbuchteRueckstellung || 0),
-                            0,
+                            0
                           )
                           .toLocaleString("de-DE", {
                             minimumFractionDigits: 2,
@@ -968,7 +967,7 @@ export function AppLayout({
                               sum +
                               calculateQuarterlySingleInterest(entry) -
                               (entry.verbuchteRueckstellung || 0),
-                            0,
+                            0
                           )
                           .toLocaleString("de-DE", {
                             minimumFractionDigits: 2,
@@ -1080,7 +1079,7 @@ export function AppLayout({
                   decimalSeparator=","
                   onChange={(value) => {
                     if (!data) return;
-                    setData(prevData => {
+                    setData((prevData) => {
                       if (!prevData) return prevData;
                       const newData = [...prevData];
                       newData[index] = {
