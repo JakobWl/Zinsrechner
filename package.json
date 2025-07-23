@@ -41,6 +41,7 @@
     "typescript": "^5.8.2",
     "vite": "6.3.4",
     "vite-plugin-electron": "^0.29.0",
-    "vite-plugin-electron-renderer": "^0.14.6"
+    "vite-plugin-electron-renderer": "^0.14.6",
+    "vitest": "^3.2.4"
   }
 }

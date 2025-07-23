@@ -26,6 +26,7 @@ import {
 } from "@ant-design/icons";
 import { RangePickerProps } from "antd/lib/date-picker";
 import packageJson from "../package.json";
+import { calculateInterest } from "./utils/interestCalculation";
 
 dayjs.extend(isLeapYear);
 
@@ -110,36 +111,6 @@ export function AppLayout({
     setData(updatedData);
   };
 
-  const calculateInterest = (
-    entry: KontoData,
-    pStartDatum: Dayjs,
-    pEndDatum: Dayjs,
-  ) => {
-    console.log("calculateInterest called with:", {
-      bankName: entry.bankName,
-      kontoNumber: entry.kontoNumber,
-      startDatum: pStartDatum.format("DD.MM.YYYY"),
-      endDatum: pEndDatum.format("DD.MM.YYYY"),
-      nominal: entry.nominal,
-      zinssatz: entry.zinssatz,
-    });
-    const yearDays = pStartDatum.isLeapYear() ? 366 : 365;
-
-    // Before we had to correct by subtracting a day from startDate due to leap year. How must i correctly account for leap years?
-    const days = pEndDatum.diff(pStartDatum, "day");
-    console.log(
-      `Calculation: days = ${pEndDatum.format("DD.MM.YYYY")} - ${pStartDatum.format("DD.MM.YYYY")} (effektiv für ${pStartDatum.format("DD.MM.YYYY")}) = ${days} days`,
-    );
-    const interest = entry.nominal * (entry.zinssatz / 100) * (days / yearDays);
-    const roundedInterest = Math.round(interest * 100) / 100;
-    console.log(
-      `Calculation: interest = ${entry.nominal} * (${entry.zinssatz} / 100) * (${days} / ${yearDays}) = ${interest}`,
-    );
-    console.log(
-      `Calculation: roundedInterest = Math.round(${interest} * 100) / 100 = ${roundedInterest}`,
-    );
-    return roundedInterest;
-  };
 
   const calculateTotalInterest = () => {
     if (!data) return 0;
@@ -893,8 +864,8 @@ export function AppLayout({
           <Table
             className="table"
             dataSource={data}
-            rowKey={(record) =>
-              record.bankName + record.kontoNumber + crypto.randomUUID()
+            rowKey={(record, index) =>
+              `${record.bankName}-${record.kontoNumber}-${index}`
             }
             pagination={false}
             scroll={{ x: "max-content" }}
@@ -1109,12 +1080,15 @@ export function AppLayout({
                   decimalSeparator=","
                   onChange={(value) => {
                     if (!data) return;
-                    const newData = [...data];
-                    newData[index] = {
-                      ...record,
-                      verbuchteRueckstellung: value || 0,
-                    };
-                    setData(newData);
+                    setData(prevData => {
+                      if (!prevData) return prevData;
+                      const newData = [...prevData];
+                      newData[index] = {
+                        ...newData[index],
+                        verbuchteRueckstellung: value || 0,
+                      };
+                      return newData;
+                    });
                   }}
                 />
               )}
