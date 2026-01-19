@@ -29,7 +29,7 @@ function calculate30360Days(startDate: Dayjs, endDate: Dayjs): number {
   if (d1 === 31) d1 = 30;
   if (d2 === 31) d2 = 30;
 
-  return (y2 - y1) * 360 + (m2 - m1) * 30 + (d2 - d1) + 1;
+  return (y2 - y1) * 360 + (m2 - m1) * 30 + (d2 - d1);
 }
 
 export const calculateInterest = (
