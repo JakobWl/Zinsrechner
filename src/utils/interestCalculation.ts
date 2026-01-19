@@ -1,5 +1,7 @@
 import dayjs, { Dayjs } from "dayjs";
 
+export type DayCountConvention = "actual" | "30/360";
+
 export interface KontoData {
   bankName: string;
   kontoNumber: string;
@@ -7,6 +9,7 @@ export interface KontoData {
   endDatum: Dayjs;
   zinssatz: number;
   nominal: number;
+  dayCountConvention?: DayCountConvention;
   zinsen?: number;
   kommulierteZinsen?: number;
   quarterlyZinsen?: number;
@@ -14,11 +17,28 @@ export interface KontoData {
   kommulierteSumme?: number;
 }
 
+function calculate30360Days(startDate: Dayjs, endDate: Dayjs): number {
+  let d1 = startDate.date();
+  let m1 = startDate.month() + 1;
+  let y1 = startDate.year();
+
+  let d2 = endDate.date();
+  let m2 = endDate.month() + 1;
+  let y2 = endDate.year();
+
+  if (d1 === 31) d1 = 30;
+  if (d2 === 31) d2 = 30;
+
+  return (y2 - y1) * 360 + (m2 - m1) * 30 + (d2 - d1) + 1;
+}
+
 export const calculateInterest = (
   entry: KontoData,
   pStartDatum: Dayjs,
   pEndDatum: Dayjs
 ) => {
+  const convention = entry.dayCountConvention || "actual";
+
   console.log("calculateInterest called with:", {
     bankName: entry.bankName,
     kontoNumber: entry.kontoNumber,
@@ -26,36 +46,34 @@ export const calculateInterest = (
     endDatum: pEndDatum.format("DD.MM.YYYY"),
     nominal: entry.nominal,
     zinssatz: entry.zinssatz,
+    dayCountConvention: convention,
   });
 
-  // For financial calculations, use inclusive counting for both start and end dates
-  // This means both startDatum and endDatum are included in the calculation
-  const days = pEndDatum.diff(pStartDatum, "day") + 1;
+  let days: number;
+  let yearBasis: number;
 
-  // If negative period, return 0
+  if (convention === "30/360") {
+    days = calculate30360Days(pStartDatum, pEndDatum);
+    yearBasis = 360;
+  } else {
+    days = pEndDatum.diff(pStartDatum, "day") + 1;
+    yearBasis = calculateEffectiveYearBasis(pStartDatum, pEndDatum);
+  }
+
   if (days <= 0) {
-    console.log(
-      `Calculation: days = ${days} (invalid period) = 0 interest`
-    );
+    console.log(`Calculation: days = ${days} (invalid period) = 0 interest`);
     return 0.0;
   }
 
   console.log(
-    `Calculation: days = ${pEndDatum.format("DD.MM.YYYY")} - ${pStartDatum.format("DD.MM.YYYY")} (effektiv für ${pStartDatum.format("DD.MM.YYYY")}) = ${days} days`
+    `Calculation: days = ${pEndDatum.format("DD.MM.YYYY")} - ${pStartDatum.format("DD.MM.YYYY")} = ${days} days (${convention})`
   );
 
-  // Calculate effective year basis for the period
-  const effectiveYearBasis = calculateEffectiveYearBasis(
-    pStartDatum,
-    pEndDatum
-  );
-
-  const interest =
-    entry.nominal * (entry.zinssatz / 100) * (days / effectiveYearBasis);
+  const interest = entry.nominal * (entry.zinssatz / 100) * (days / yearBasis);
   const roundedInterest = Math.round(interest * 100) / 100;
 
   console.log(
-    `Calculation: interest = ${entry.nominal} * (${entry.zinssatz} / 100) * (${days} / ${effectiveYearBasis}) = ${interest}`
+    `Calculation: interest = ${entry.nominal} * (${entry.zinssatz} / 100) * (${days} / ${yearBasis}) = ${interest}`
   );
   console.log(
     `Calculation: roundedInterest = Math.round(${interest} * 100) / 100 = ${roundedInterest}`

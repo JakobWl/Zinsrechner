@@ -13,6 +13,7 @@ import {
   Layout,
   Popconfirm,
   Row,
+  Select,
   Table,
   theme,
   Tooltip,
@@ -26,7 +27,7 @@ import {
 } from "@ant-design/icons";
 import { RangePickerProps } from "antd/lib/date-picker";
 import packageJson from "../package.json";
-import { calculateInterest } from "./utils/interestCalculation";
+import { calculateInterest, DayCountConvention } from "./utils/interestCalculation";
 
 dayjs.extend(isLeapYear);
 
@@ -37,6 +38,7 @@ interface KontoData {
   endDatum: Dayjs;
   zinssatz: number;
   nominal: number;
+  dayCountConvention?: DayCountConvention;
   zinsen?: number;
   kommulierteZinsen?: number;
   quarterlyZinsen?: number;
@@ -86,17 +88,17 @@ export function AppLayout({
 
   const handleAddKonto = (values: any) => {
     if (!data) return;
-    // Using the range picker value, where values.dateRange is an array of two Dayjs objects
     const [startDatum, endDatum] = values.dateRange;
-    const { bankName, kontoNumber, zinssatz, nominal } = values;
+    const { bankName, kontoNumber, zinssatz, nominal, dayCountConvention } = values;
     const newKonto: KontoData = {
       bankName,
       kontoNumber,
       startDatum,
       endDatum,
       zinssatz: parseFloat(zinssatz),
-      kommulierteZinsen: 0,
       nominal: parseFloat(nominal),
+      dayCountConvention: dayCountConvention || "actual",
+      kommulierteZinsen: 0,
       verbuchteRueckstellung: 0,
       kommulierteSumme: 0,
     };
@@ -232,6 +234,7 @@ export function AppLayout({
               <td>${entry.endDatum.format("DD.MM.YYYY")}</td>
               <td>${months}</td>
               <td>${entry.zinssatz}</td>
+              <td>${entry.dayCountConvention === "30/360" ? "30/360" : "Tagegenau"}</td>
               <td class="align-right">${entry.nominal.toLocaleString("de-DE", {
                 minimumFractionDigits: 2,
                 maximumFractionDigits: 2,
@@ -292,14 +295,13 @@ export function AppLayout({
 
         tableContent += `
         <tbody>
-          <!-- Group header with bank name -->
           <tr class="group-header">
-            <td colspan="11" class="bank-title">${bankName}</td>
+            <td colspan="12" class="bank-title">${bankName}</td>
           </tr>
           ${groupRows}
-          <!-- Group totals -->
           <tr style="font-weight: bold;">
             <td>Summe</td>
+            <td></td>
             <td></td>
             <td></td>
             <td></td>
@@ -416,7 +418,8 @@ export function AppLayout({
           <th>Startdatum</th>
           <th>Enddatum</th>
           <th>Lfz. Mon.</th>
-          <th>Zins<br/>satz (%)</th>
+          <th>Zinssatz (%)</th>
+          <th>Zinsmethode</th>
           <th>Nominal (€)</th>
           <th>Zinsen gesamte Laufzeit (€)</th>
           <th>Kommulierte Zinsen bis Stichtag (€)</th>
@@ -437,7 +440,8 @@ export function AppLayout({
           <th>Startdatum</th>
           <th>Enddatum</th>
           <th>Lfz. Mon.</th>
-          <th>Zins<br/>satz (%)</th>
+          <th>Zinssatz (%)</th>
+          <th>Zinsmethode</th>
           <th>Nominal (€)</th>
           <th>Zinsen gesamte Laufzeit (€)</th>
           <th>Kommulierte Zinsen bis Stichtag (€)</th>
@@ -799,6 +803,16 @@ export function AppLayout({
             >
               <Input type="number" />
             </Form.Item>
+            <Form.Item
+              label="Zinsmethode"
+              name="dayCountConvention"
+              initialValue="actual"
+            >
+              <Select>
+                <Select.Option value="actual">Tagegenau (365)</Select.Option>
+                <Select.Option value="30/360">Kaufmännisch (30/360)</Select.Option>
+              </Select>
+            </Form.Item>
             <Button type="primary" htmlType="submit">
               Hinzufügen
             </Button>
@@ -877,18 +891,13 @@ export function AppLayout({
             summary={() => (
               <Table.Summary fixed>
                 <Table.Summary.Row style={{ fontWeight: "bold" }}>
-                  {/* Column 0: Bank Name */}
                   <Table.Summary.Cell index={0}>Summe</Table.Summary.Cell>
-                  {/* Column 1: Konto Nummer */}
                   <Table.Summary.Cell index={1} />
-                  {/* Column 2: Startdatum */}
                   <Table.Summary.Cell index={2} />
-                  {/* Column 3: Enddatum */}
                   <Table.Summary.Cell index={3} />
-                  {/* Column 4: Zinssatz (%) */}
                   <Table.Summary.Cell index={4} />
-                  {/* Column 5: Nominal (€) */}
-                  <Table.Summary.Cell index={5}>
+                  <Table.Summary.Cell index={5} />
+                  <Table.Summary.Cell index={6}>
                     {data
                       ? data
                           .reduce((sum, entry) => sum + entry.nominal, 0)
@@ -898,8 +907,7 @@ export function AppLayout({
                           })
                       : "0,00"}
                   </Table.Summary.Cell>
-                  {/* Column 6: Zinsen (€) */}
-                  <Table.Summary.Cell align="end" index={6}>
+                  <Table.Summary.Cell align="end" index={7}>
                     {data
                       ? data
                           .reduce(
@@ -913,8 +921,7 @@ export function AppLayout({
                           })
                       : "0,00"}
                   </Table.Summary.Cell>
-                  {/* Column 7: Kommulierte Zinsen bis Stichtag */}
-                  <Table.Summary.Cell align="end" index={7}>
+                  <Table.Summary.Cell align="end" index={8}>
                     {data && quartalsEnde
                       ? data
                           .reduce(
@@ -928,8 +935,7 @@ export function AppLayout({
                           })
                       : "0,00"}
                   </Table.Summary.Cell>
-                  {/* Column 8: Quartalszinsen (€) */}
-                  <Table.Summary.Cell align="end" index={8}>
+                  <Table.Summary.Cell align="end" index={9}>
                     {data && quartalsBeginn && quartalsEnde
                       ? data
                           .reduce(
@@ -943,8 +949,7 @@ export function AppLayout({
                           })
                       : "0,00"}
                   </Table.Summary.Cell>
-                  {/* Column 9: Bezahlte Zinsen */}
-                  <Table.Summary.Cell align="end" index={9}>
+                  <Table.Summary.Cell align="end" index={10}>
                     {data
                       ? data
                           .reduce(
@@ -958,8 +963,7 @@ export function AppLayout({
                           })
                       : "0,00"}
                   </Table.Summary.Cell>
-                  {/* Column 10: Zinsabgrenzung (KTO 2301) */}
-                  <Table.Summary.Cell align="end" index={10}>
+                  <Table.Summary.Cell align="end" index={11}>
                     {data
                       ? data
                           .reduce(
@@ -975,8 +979,7 @@ export function AppLayout({
                           })
                       : "0,00"}
                   </Table.Summary.Cell>
-                  {/* Column 11: Aktionen */}
-                  <Table.Summary.Cell index={11} />
+                  <Table.Summary.Cell index={12} />
                 </Table.Summary.Row>
               </Table.Summary>
             )}
@@ -1013,6 +1016,32 @@ export function AppLayout({
               width={120}
               dataIndex="zinssatz"
               key="zinssatz"
+            />
+            <Table.Column
+              title="Zinsmethode"
+              width={140}
+              key="dayCountConvention"
+              render={(_, record: KontoData, index: number) => (
+                <Select
+                  value={record.dayCountConvention || "actual"}
+                  style={{ width: 120 }}
+                  onChange={(value: DayCountConvention) => {
+                    if (!data) return;
+                    setData((prevData) => {
+                      if (!prevData) return prevData;
+                      const newData = [...prevData];
+                      newData[index] = {
+                        ...newData[index],
+                        dayCountConvention: value,
+                      };
+                      return newData;
+                    });
+                  }}
+                >
+                  <Select.Option value="actual">Tagegenau</Select.Option>
+                  <Select.Option value="30/360">30/360</Select.Option>
+                </Select>
+              )}
             />
             <Table.Column
               title="Nominal (€)"
