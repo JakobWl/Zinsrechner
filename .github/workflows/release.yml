@@ -13,9 +13,23 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       should_release: ${{ steps.check.outputs.should_release }}
+      has_signing_secrets: ${{ steps.signing.outputs.has_signing_secrets }}
       version: ${{ steps.check.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Check code-signing secrets
+        id: signing
+        env:
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: |
+          if [ -n "$WIN_CSC_LINK" ] && [ -n "$WIN_CSC_KEY_PASSWORD" ]; then
+            echo "has_signing_secrets=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_signing_secrets=false" >> $GITHUB_OUTPUT
+            echo "::warning::Skipping Store release: WIN_CSC_LINK and WIN_CSC_KEY_PASSWORD are required for Microsoft Store code signing."
+          fi
 
       - name: Check if release exists
         id: check
@@ -35,26 +49,12 @@ jobs:
 
   build-windows:
     needs: check-version
-    if: needs.check-version.outputs.should_release == 'true'
+    if: needs.check-version.outputs.should_release == 'true' && needs.check-version.outputs.has_signing_secrets == 'true'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Check code-signing secrets
-        env:
-          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
-          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
-        run: |
-          $missing = @()
-          if ([string]::IsNullOrWhiteSpace($env:WIN_CSC_LINK)) { $missing += "WIN_CSC_LINK" }
-          if ([string]::IsNullOrWhiteSpace($env:WIN_CSC_KEY_PASSWORD)) { $missing += "WIN_CSC_KEY_PASSWORD" }
-
-          if ($missing.Count -gt 0) {
-            Write-Error "Missing GitHub repository secret(s): $($missing -join ', '). Add a publicly trusted code-signing certificate before running the Store release workflow."
-            exit 1
-          }
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -92,3 +92,23 @@ jobs:
         with:
           name: windows-build
           path: release/*/Zinsrechner-Setup-*-x64.exe
+
+  signing-required:
+    needs: check-version
+    if: needs.check-version.outputs.should_release == 'true' && needs.check-version.outputs.has_signing_secrets != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Explain why no Store release was created
+        run: |
+          cat <<'EOF' >> $GITHUB_STEP_SUMMARY
+          ## Store release was skipped
+
+          The Microsoft Store requires a publicly trusted Authenticode signature for MSI/EXE submissions.
+
+          Add these repository secrets before running this workflow again:
+
+          - `WIN_CSC_LINK`
+          - `WIN_CSC_KEY_PASSWORD`
+
+          No GitHub Release was created because an unsigned installer would fail Microsoft Store certification.
+          EOF
