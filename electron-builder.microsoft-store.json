@@ -12,7 +12,7 @@
   },
   "appx": {
     "displayName": "Zinsrechner",
-    "publisherDisplayName": "Jakob Winkler",
+    "publisherDisplayName": "Widev e.U.",
     "languages": ["de-DE"],
     "backgroundColor": "#ffffff"
   }
