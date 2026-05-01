@@ -4,12 +4,16 @@
   "win": {
     "target": [
       {
-        "target": "nsis",
+        "target": "appx",
         "arch": ["x64"]
       }
     ],
-    "artifactName": "Zinsrechner-Setup-${version}-${arch}.${ext}",
-    "forceCodeSigning": true,
-    "signExts": [".dll"]
+    "artifactName": "Zinsrechner-Store-${version}-${arch}.${ext}"
+  },
+  "appx": {
+    "displayName": "Zinsrechner",
+    "publisherDisplayName": "Jakob Winkler",
+    "languages": ["de-DE"],
+    "backgroundColor": "#ffffff"
   }
 }

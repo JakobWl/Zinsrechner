@@ -1,55 +1,41 @@
 # Microsoft Store submission
 
-This app is submitted as a Win32 MSI/EXE app. Microsoft requires a versioned HTTPS URL that points to a standalone installer. For GitHub Releases, use the versioned release asset URL, not a `latest` URL.
+This app should be submitted as a Microsoft Store AppX package when no paid code-signing certificate is available. Microsoft signs Store AppX/MSIX packages for free during Store certification.
 
-## Required package URL
+The MSI/EXE package URL flow is not free for this app, because Microsoft requires the publisher to Authenticode-sign MSI/EXE installers before submission.
 
-Use this format in Partner Center:
+## Store package
 
-```text
-https://github.com/JakobWl/Zinsrechner/releases/download/v1.1.9/Zinsrechner-Setup-1.1.9-x64.exe
-```
-
-Replace `1.1.9` with the version in `package.json`.
-
-## Partner Center package fields
-
-- Package URL: the GitHub Releases asset URL above
-- Architecture: `x64`
-- App type: `EXE`
-- Installer parameters: `/S`
-- Supported languages: at least `de` or `de-at`
-
-## Release requirements
-
-- The installer must be signed with a publicly trusted code-signing certificate.
-- The installed EXE/DLL files must also be signed.
-- The installer must be standalone/offline. It must not download app binaries during install.
-- The release asset must not be replaced after Store submission. For updates, bump `package.json` and create a new release URL.
-
-## Signing for GitHub Actions
-
-The store release workflow expects these repository secrets:
-
-- `WIN_CSC_LINK`: HTTPS URL, base64 value, or file reference for the `.pfx`/`.p12` code-signing certificate
-- `WIN_CSC_KEY_PASSWORD`: password for the certificate
-
-For an exportable PFX certificate, create the `WIN_CSC_LINK` value locally with PowerShell:
+Build the Store package:
 
 ```powershell
-[Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\path\to\certificate.pfx"))
+npm run build:store
 ```
 
-Add the output as a repository secret in GitHub: `Settings` -> `Secrets and variables` -> `Actions` -> `New repository secret`.
-
-After the workflow creates a release, copy the `Zinsrechner-Setup-<version>-x64.exe` asset URL into Partner Center.
-
-## Common signing failure
-
-If GitHub Actions fails with this message:
+The output is:
 
 ```text
-App is not signed and "forceCodeSigning" is set to true
+release\<version>\Zinsrechner-Store-<version>-x64.appx
 ```
 
-then the workflow did not receive a usable code-signing certificate. Check that `WIN_CSC_LINK` and `WIN_CSC_KEY_PASSWORD` are set correctly and that the certificate chains to a CA in the Microsoft Trusted Root Program.
+Upload this `.appx` file in Partner Center using the package upload flow. Do not use the MSI/EXE package URL page for the free signing path.
+
+## Partner Center package identity
+
+Before final submission, check the package identity values assigned by Partner Center after reserving the app name. If Partner Center rejects the package identity, update `electron-builder.microsoft-store.json`:
+
+- `appx.identityName`
+- `appx.publisher`
+- `appx.publisherDisplayName`
+
+The current config omits `appx.publisher` so electron-builder can generate a Store package without a local certificate. The Microsoft Store signs the uploaded package after certification.
+
+## GitHub release
+
+The release workflow creates this asset:
+
+```text
+https://github.com/JakobWl/Zinsrechner/releases/download/v1.1.9/Zinsrechner-Store-1.1.9-x64.appx
+```
+
+Use the downloaded `.appx` package for Partner Center upload. A versioned URL is not needed for the AppX upload flow.
