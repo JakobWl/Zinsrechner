@@ -27,7 +27,11 @@ import {
 } from "@ant-design/icons";
 import { RangePickerProps } from "antd/lib/date-picker";
 import packageJson from "../package.json";
-import { calculateInterest, DayCountConvention } from "./utils/interestCalculation";
+import {
+  calculateInterest,
+  calculateInterestForPeriod,
+  DayCountConvention,
+} from "./utils/interestCalculation";
 
 dayjs.extend(isLeapYear);
 
@@ -145,14 +149,7 @@ export function AppLayout({
       quartalsBeginn: quartalsBeginn.format("DD.MM.YYYY"),
       quartalsEnde: quartalsEnde.format("DD.MM.YYYY"),
     });
-    if (quartalsEnde.isBefore(entry.startDatum)) return 0;
-    if (quartalsBeginn.isBefore(entry.startDatum)) {
-      return calculateInterest(entry, entry.startDatum, quartalsEnde);
-    }
-    if (quartalsEnde.isAfter(entry.endDatum)) {
-      return calculateInterest(entry, quartalsBeginn, entry.endDatum);
-    }
-    return calculateInterest(entry, quartalsBeginn, quartalsEnde);
+    return calculateInterestForPeriod(entry, quartalsBeginn, quartalsEnde);
   };
 
   const handleQuartalsRangeChange: RangePickerProps["onChange"] = (

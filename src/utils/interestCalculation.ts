@@ -82,6 +82,42 @@ export const calculateInterest = (
   return roundedInterest;
 };
 
+export const calculateInterestForPeriod = (
+  entry: KontoData,
+  periodStart: Dayjs,
+  periodEnd: Dayjs
+) => {
+  if (periodEnd.isBefore(entry.startDatum) || periodStart.isAfter(entry.endDatum)) {
+    return 0.0;
+  }
+
+  const effectiveStart = periodStart.isBefore(entry.startDatum)
+    ? entry.startDatum
+    : periodStart;
+  const effectiveEnd = periodEnd.isAfter(entry.endDatum)
+    ? entry.endDatum
+    : periodEnd;
+
+  const accruedToPeriodEnd = calculateInterest(
+    entry,
+    entry.startDatum,
+    effectiveEnd
+  );
+  const priorCutoff = effectiveStart.subtract(1, "day");
+
+  if (priorCutoff.isBefore(entry.startDatum)) {
+    return accruedToPeriodEnd;
+  }
+
+  const accruedBeforePeriod = calculateInterest(
+    entry,
+    entry.startDatum,
+    priorCutoff
+  );
+
+  return Math.round((accruedToPeriodEnd - accruedBeforePeriod) * 100) / 100;
+};
+
 /**
  * Calculate the effective year basis for a given period.
  * For single-year periods, uses the year's actual day count.
