@@ -12,6 +12,8 @@ Build the Store package:
 npm run build:store
 ```
 
+The Store build passes `--publish never` to electron-builder. This is required in CI because electron-builder otherwise detects GitHub Actions and tries to publish with the global GitHub release configuration.
+
 The output is:
 
 ```text
