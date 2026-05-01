@@ -1,0 +1,15 @@
+{
+  "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  "extends": "./electron-builder.json",
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      }
+    ],
+    "artifactName": "Zinsrechner-Setup-${version}-${arch}.${ext}",
+    "forceCodeSigning": true,
+    "signExts": [".dll"]
+  }
+}

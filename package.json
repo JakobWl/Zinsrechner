@@ -1,6 +1,6 @@
 {
   "name": "zinsrechner",
-  "version": "1.1.8",
+  "version": "1.1.9",
   "main": "dist-electron/main/index.js",
   "description": "BBG Zinsrechner.",
   "author": "Jakob Winkler",
@@ -15,9 +15,11 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build && electron-builder",
+    "build:store": "tsc && vite build && electron-builder --config electron-builder.store.json",
     "preview": "vite preview",
     "pretest": "vite build --mode=test",
-    "test": "vitest run"
+    "test": "vitest run",
+    "validate:store": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/validate-store-package.ps1"
   },
   "dependencies": {
     "@ant-design/icons": "^6.0.0",

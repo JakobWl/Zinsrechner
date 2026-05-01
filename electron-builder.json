@@ -1,6 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
-  "appId": "YourAppID",
+  "appId": "com.jakobwl.zinsrechner",
+  "productName": "Zinsrechner",
   "asar": true,
   "directories": {
     "output": "release/${version}"
@@ -17,7 +18,7 @@
         "arch": ["x64"]
       }
     ],
-    "artifactName": "${productName}_${version}.${ext}"
+    "artifactName": "${productName}-Setup-${version}-${arch}.${ext}"
   },
   "nsis": {
     "oneClick": false,
