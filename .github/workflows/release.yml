@@ -42,6 +42,20 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Check code-signing secrets
+        env:
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: |
+          $missing = @()
+          if ([string]::IsNullOrWhiteSpace($env:WIN_CSC_LINK)) { $missing += "WIN_CSC_LINK" }
+          if ([string]::IsNullOrWhiteSpace($env:WIN_CSC_KEY_PASSWORD)) { $missing += "WIN_CSC_KEY_PASSWORD" }
+
+          if ($missing.Count -gt 0) {
+            Write-Error "Missing GitHub repository secret(s): $($missing -join ', '). Add a publicly trusted code-signing certificate before running the Store release workflow."
+            exit 1
+          }
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:

@@ -34,4 +34,22 @@ The store release workflow expects these repository secrets:
 - `WIN_CSC_LINK`: HTTPS URL, base64 value, or file reference for the `.pfx`/`.p12` code-signing certificate
 - `WIN_CSC_KEY_PASSWORD`: password for the certificate
 
+For an exportable PFX certificate, create the `WIN_CSC_LINK` value locally with PowerShell:
+
+```powershell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\path\to\certificate.pfx"))
+```
+
+Add the output as a repository secret in GitHub: `Settings` -> `Secrets and variables` -> `Actions` -> `New repository secret`.
+
 After the workflow creates a release, copy the `Zinsrechner-Setup-<version>-x64.exe` asset URL into Partner Center.
+
+## Common signing failure
+
+If GitHub Actions fails with this message:
+
+```text
+App is not signed and "forceCodeSigning" is set to true
+```
+
+then the workflow did not receive a usable code-signing certificate. Check that `WIN_CSC_LINK` and `WIN_CSC_KEY_PASSWORD` are set correctly and that the certificate chains to a CA in the Microsoft Trusted Root Program.
