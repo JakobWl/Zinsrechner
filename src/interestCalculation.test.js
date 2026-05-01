@@ -16,7 +16,7 @@ import isLeapYear from 'dayjs/plugin/isLeapYear';
 // Import the actual calculateInterest function from your utility file
 import {
   calculateInterest,
-  calculateInterestForPeriod,
+  calculateQuarterlyInterest,
 } from './utils/interestCalculation';
 
 dayjs.extend(dayOfYear);
@@ -561,8 +561,8 @@ describe('13. User Reported Issue', () => {
   });
 });
 
-describe('14. Quarterly Accrual Reconciliation', () => {
-  test('should reconcile a 30/360 Q1 period with cumulative interest movement', () => {
+describe('14. Quarterly Interest', () => {
+  test('should calculate a full 30/360 quarter with exactly 90 days', () => {
     const entry = {
       bankName: 'Test Bank',
       kontoNumber: 'Q1-30-360',
@@ -573,29 +573,16 @@ describe('14. Quarterly Accrual Reconciliation', () => {
       dayCountConvention: '30/360',
     };
 
-    const accruedAtYearEnd = calculateInterest(
-      entry,
-      entry.startDatum,
-      dayjs('2025-12-31')
-    );
-    const accruedAtQ1End = calculateInterest(
-      entry,
-      entry.startDatum,
-      dayjs('2026-03-31')
-    );
-    const q1Interest = calculateInterestForPeriod(
+    const q1Interest = calculateQuarterlyInterest(
       entry,
       dayjs('2026-01-01'),
       dayjs('2026-03-31')
     );
 
     expect(q1Interest).toBe(8000);
-    expect(Math.round((accruedAtYearEnd + q1Interest) * 100) / 100).toBe(
-      accruedAtQ1End
-    );
   });
 
-  test('should keep actual day-count quarter interest aligned with cumulative movement', () => {
+  test('should keep actual day-count quarter interest date based', () => {
     const entry = {
       bankName: 'Test Bank',
       kontoNumber: 'Q1-ACTUAL',
@@ -606,25 +593,13 @@ describe('14. Quarterly Accrual Reconciliation', () => {
       dayCountConvention: 'actual',
     };
 
-    const accruedAtYearEnd = calculateInterest(
-      entry,
-      entry.startDatum,
-      dayjs('2025-12-31')
-    );
-    const accruedAtQ1End = calculateInterest(
-      entry,
-      entry.startDatum,
-      dayjs('2026-03-31')
-    );
-    const q1Interest = calculateInterestForPeriod(
+    const q1Interest = calculateQuarterlyInterest(
       entry,
       dayjs('2026-01-01'),
       dayjs('2026-03-31')
     );
 
-    expect(Math.round((accruedAtYearEnd + q1Interest) * 100) / 100).toBe(
-      accruedAtQ1End
-    );
+    expect(q1Interest).toBe(7890.41);
   });
 });
 

@@ -29,7 +29,7 @@ import { RangePickerProps } from "antd/lib/date-picker";
 import packageJson from "../package.json";
 import {
   calculateInterest,
-  calculateInterestForPeriod,
+  calculateQuarterlyInterest,
   DayCountConvention,
 } from "./utils/interestCalculation";
 
@@ -149,7 +149,7 @@ export function AppLayout({
       quartalsBeginn: quartalsBeginn.format("DD.MM.YYYY"),
       quartalsEnde: quartalsEnde.format("DD.MM.YYYY"),
     });
-    return calculateInterestForPeriod(entry, quartalsBeginn, quartalsEnde);
+    return calculateQuarterlyInterest(entry, quartalsBeginn, quartalsEnde);
   };
 
   const handleQuartalsRangeChange: RangePickerProps["onChange"] = (

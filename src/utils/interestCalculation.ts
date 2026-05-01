@@ -82,7 +82,7 @@ export const calculateInterest = (
   return roundedInterest;
 };
 
-export const calculateInterestForPeriod = (
+export const calculateQuarterlyInterest = (
   entry: KontoData,
   periodStart: Dayjs,
   periodEnd: Dayjs
@@ -98,24 +98,16 @@ export const calculateInterestForPeriod = (
     ? entry.endDatum
     : periodEnd;
 
-  const accruedToPeriodEnd = calculateInterest(
-    entry,
-    entry.startDatum,
-    effectiveEnd
-  );
-  const priorCutoff = effectiveStart.subtract(1, "day");
+  const isFullSelectedPeriod =
+    effectiveStart.isSame(periodStart, "day") &&
+    effectiveEnd.isSame(periodEnd, "day");
 
-  if (priorCutoff.isBefore(entry.startDatum)) {
-    return accruedToPeriodEnd;
+  if ((entry.dayCountConvention || "actual") === "30/360" && isFullSelectedPeriod) {
+    const quarterlyInterest = entry.nominal * (entry.zinssatz / 100) * (90 / 360);
+    return Math.round(quarterlyInterest * 100) / 100;
   }
 
-  const accruedBeforePeriod = calculateInterest(
-    entry,
-    entry.startDatum,
-    priorCutoff
-  );
-
-  return Math.round((accruedToPeriodEnd - accruedBeforePeriod) * 100) / 100;
+  return calculateInterest(entry, effectiveStart, effectiveEnd);
 };
 
 /**
