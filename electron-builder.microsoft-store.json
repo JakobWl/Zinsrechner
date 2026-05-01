@@ -11,7 +11,9 @@
     "artifactName": "Zinsrechner-Store-${version}-${arch}.${ext}"
   },
   "appx": {
-    "displayName": "Zinsrechner",
+    "identityName": "Wideve.U.BBGZinsrechner",
+    "publisher": "CN=2FB3D10A-81DA-44DA-AA5D-0E9816DC9FB2",
+    "displayName": "BBG Zinsrechner",
     "publisherDisplayName": "Widev e.U.",
     "languages": ["de-DE"],
     "backgroundColor": "#ffffff"
