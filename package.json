@@ -2,7 +2,7 @@
   "name": "zinsrechner",
   "version": "1.1.9",
   "main": "dist-electron/main/index.js",
-  "description": "BBG Zinsrechner.",
+  "description": "WiDev Zinsrechner.",
   "author": "Jakob Winkler",
   "license": "MIT",
   "private": true,
