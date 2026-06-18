@@ -6,11 +6,13 @@ import {
   Button,
   Card,
   DatePicker,
+  Dropdown,
   FloatButton,
   Form,
   Input,
   InputNumber,
   Layout,
+  Modal,
   Popconfirm,
   Row,
   Select,
@@ -18,9 +20,16 @@ import {
   theme,
   Tooltip,
   Typography,
+  message,
 } from "antd";
+import type { MenuProps } from "antd";
 import {
+  ArrowDownOutlined,
+  ArrowUpOutlined,
   DeleteOutlined,
+  FileExcelOutlined,
+  FilePdfOutlined,
+  HistoryOutlined,
   MoonOutlined,
   SettingOutlined,
   SunOutlined,
@@ -48,6 +57,76 @@ interface KontoData {
   quarterlyZinsen?: number;
   verbuchteRueckstellung?: number;
   kommulierteSumme?: number;
+}
+
+interface HistoryRow {
+  datum: string; // DD.MM.YYYY
+  bankName: string;
+  menge: number;
+  prozent: number;
+  ereignis: string; // e.g. "Eröffnung" / "Ablauf"
+  aenderung: "up" | "down" | "none";
+}
+
+/**
+ * Build a chronologically sorted list of all events across all banks.
+ * For every account we emit two events: "Eröffnung" at startDatum and
+ * "Ablauf" at endDatum. The percentage change is computed per bank against
+ * the previous event (increase = green/up, decrease = red/down).
+ */
+function buildHistoryRows(data: KontoData[] | undefined): HistoryRow[] {
+  if (!data || data.length === 0) return [];
+
+  const events: {
+    datum: Dayjs;
+    bankName: string;
+    menge: number;
+    prozent: number;
+    ereignis: string;
+  }[] = [];
+
+  data.forEach((entry) => {
+    events.push({
+      datum: entry.startDatum,
+      bankName: entry.bankName,
+      menge: entry.nominal,
+      prozent: entry.zinssatz,
+      ereignis: "Eröffnung",
+    });
+    events.push({
+      datum: entry.endDatum,
+      bankName: entry.bankName,
+      menge: entry.nominal,
+      prozent: entry.zinssatz,
+      ereignis: "Ablauf",
+    });
+  });
+
+  // Sort chronologically; for the same date, sort by bank name for stability.
+  events.sort((a, b) => {
+    if (!a.datum.isSame(b.datum, "day")) return a.datum.valueOf() - b.datum.valueOf();
+    return a.bankName.localeCompare(b.bankName);
+  });
+
+  // Track the last known percent per bank to compute up/down change.
+  const lastPercentByBank = new Map<string, number>();
+  return events.map((e) => {
+    const prev = lastPercentByBank.get(e.bankName);
+    let aenderung: HistoryRow["aenderung"] = "none";
+    if (prev !== undefined) {
+      if (e.prozent > prev) aenderung = "up";
+      else if (e.prozent < prev) aenderung = "down";
+    }
+    lastPercentByBank.set(e.bankName, e.prozent);
+    return {
+      datum: e.datum.format("DD.MM.YYYY"),
+      bankName: e.bankName,
+      menge: e.menge,
+      prozent: e.prozent,
+      ereignis: e.ereignis,
+      aenderung,
+    };
+  });
 }
 
 export function AppLayout({
@@ -735,6 +814,65 @@ export function AppLayout({
     window.ipcRenderer.send("create-print-window", { content: contentHTML });
   };
 
+  const [historyPreviewOpen, setHistoryPreviewOpen] = useState(false);
+
+  const handleExportHistoryPdf = async () => {
+    const rows = buildHistoryRows(data);
+    if (rows.length === 0) {
+      message.warning("Keine Daten zum Exportieren vorhanden.");
+      return;
+    }
+    const result = await window.ipcRenderer.invoke(
+      "export-history-pdf",
+      rows,
+    );
+    if (result?.saved) {
+      message.success(`Historie als PDF gespeichert: ${result.path}`);
+    }
+  };
+
+  const handleExportHistoryExcel = async () => {
+    const rows = buildHistoryRows(data);
+    if (rows.length === 0) {
+      message.warning("Keine Daten zum Exportieren vorhanden.");
+      return;
+    }
+    const result = await window.ipcRenderer.invoke(
+      "export-history-excel",
+      rows,
+    );
+    if (result?.saved) {
+      message.success(`Historie als Excel gespeichert: ${result.path}`);
+    }
+  };
+
+  const historyMenuItems: MenuProps["items"] = [
+    {
+      key: "preview",
+      icon: <HistoryOutlined />,
+      label: "Vorschau anzeigen",
+      onClick: () => setHistoryPreviewOpen(true),
+      disabled: !data || data.length === 0,
+    },
+    { type: "divider" },
+    {
+      key: "pdf",
+      icon: <FilePdfOutlined />,
+      label: "Als PDF exportieren",
+      onClick: handleExportHistoryPdf,
+      disabled: !data || data.length === 0,
+    },
+    {
+      key: "excel",
+      icon: <FileExcelOutlined />,
+      label: "Als Excel exportieren",
+      onClick: handleExportHistoryExcel,
+      disabled: !data || data.length === 0,
+    },
+  ];
+
+  const historyPreviewRows = buildHistoryRows(data);
+
   return (
     <Layout className="layout">
       <div style={{ minWidth: 300, width: "100%", flex: 1 }}>
@@ -857,6 +995,11 @@ export function AppLayout({
             >
               Tabelle Drucken
             </Button>
+            <Dropdown menu={{ items: historyMenuItems }} placement="bottomLeft">
+              <Button type="default" icon={<HistoryOutlined />}>
+                Chronologische Historie
+              </Button>
+            </Dropdown>
             <Typography.Title style={{ margin: 0 }} level={5}>
               Legende:
             </Typography.Title>
@@ -1169,6 +1312,102 @@ export function AppLayout({
       <Typography.Text className="version-text">
         Version {packageJson.version}
       </Typography.Text>
+
+      <Modal
+        title="Chronologische Historie aller Banken"
+        open={historyPreviewOpen}
+        onCancel={() => setHistoryPreviewOpen(false)}
+        footer={[
+          <Button
+            key="pdf"
+            icon={<FilePdfOutlined />}
+            onClick={handleExportHistoryPdf}
+            disabled={historyPreviewRows.length === 0}
+          >
+            Als PDF
+          </Button>,
+          <Button
+            key="excel"
+            icon={<FileExcelOutlined />}
+            onClick={handleExportHistoryExcel}
+            disabled={historyPreviewRows.length === 0}
+          >
+            Als Excel
+          </Button>,
+          <Button key="close" type="primary" onClick={() => setHistoryPreviewOpen(false)}>
+            Schließen
+          </Button>,
+        ]}
+        width={900}
+      >
+        <Table
+          size="small"
+          pagination={false}
+          scroll={{ y: 400 }}
+          dataSource={historyPreviewRows}
+          rowKey={(record, index) =>
+            `${record.datum}-${record.bankName}-${record.ereignis}-${index}`
+          }
+          columns={[
+            {
+              title: "Datum",
+              dataIndex: "datum",
+              key: "datum",
+              width: 110,
+            },
+            {
+              title: "Bankname",
+              dataIndex: "bankName",
+              key: "bankName",
+            },
+            {
+              title: "Menge (€)",
+              dataIndex: "menge",
+              key: "menge",
+              align: "right",
+              render: (menge: number) =>
+                menge.toLocaleString("de-DE", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                }),
+            },
+            {
+              title: "Prozent",
+              dataIndex: "prozent",
+              key: "prozent",
+              align: "right",
+              render: (prozent: number, record: HistoryRow) => {
+                const color =
+                  record.aenderung === "up"
+                    ? "#008000"
+                    : record.aenderung === "down"
+                      ? "#cc0000"
+                      : "inherit";
+                const arrow =
+                  record.aenderung === "up" ? (
+                    <ArrowUpOutlined style={{ marginLeft: 4 }} />
+                  ) : record.aenderung === "down" ? (
+                    <ArrowDownOutlined style={{ marginLeft: 4 }} />
+                  ) : null;
+                return (
+                  <span style={{ color, fontWeight: "bold" }}>
+                    {prozent.toLocaleString("de-DE", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
+                    %{arrow}
+                  </span>
+                );
+              },
+            },
+            {
+              title: "Ereignis",
+              dataIndex: "ereignis",
+              key: "ereignis",
+            },
+          ]}
+        />
+      </Modal>
     </Layout>
   );
 }
