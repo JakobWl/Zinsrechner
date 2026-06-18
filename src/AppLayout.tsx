@@ -1122,7 +1122,7 @@ export function AppLayout({
             size="middle"
             bordered
             sticky
-            scroll={{ x: "max-content", y: "calc(100vh - 360px)" }}
+            scroll={{ x: "max-content", y: "calc(100vh - 470px)" }}
             rowClassName={(record) => {
               const now = dayjs();
               return record.endDatum.isBefore(now.add(1, "month"))

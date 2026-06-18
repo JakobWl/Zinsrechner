@@ -29,7 +29,9 @@ body {
 
 /* ---- App shell ---- */
 .layout {
-  min-height: 100vh;
+  height: 100vh;
+  max-height: 100vh;
+  overflow: hidden;
   flex-direction: column;
 }
 
@@ -41,9 +43,16 @@ body {
   border-bottom: 1px solid rgba(5, 5, 5, 0.06);
   position: sticky;
   top: 0;
-  z-index: 10;
+  z-index: 20;
+  flex: 0 0 auto;
   padding-inline: 20px !important;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  background-color: #ffffff !important;
+}
+@media (prefers-color-scheme: dark) {
+  .app-header {
+    background-color: #141414 !important;
+  }
 }
 
 .app-header-brand {
@@ -89,13 +98,22 @@ body {
 
 /* ---- Body / Sider / Content ---- */
 .app-body {
-  flex: 1;
-  flex-direction: row;
+  flex: 1 1 0;
   min-height: 0;
+  height: 0;
+  overflow: hidden;
 }
 
 .app-sider {
   border-inline-end: 1px solid rgba(5, 5, 5, 0.06);
+  background-color: #ffffff !important;
+  flex: 0 0 auto !important;
+  overflow: hidden;
+}
+@media (prefers-color-scheme: dark) {
+  .app-sider {
+    background-color: #141414 !important;
+  }
 }
 
 .app-sider > .ant-layout-sider-children {
@@ -108,8 +126,11 @@ body {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
   min-height: 0;
+  flex: 1 1 0;
+  height: 0;
 }
 
 /* ---- Statistic cards ---- */
