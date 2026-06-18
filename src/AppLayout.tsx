@@ -7,7 +7,6 @@ import {
   Card,
   DatePicker,
   Dropdown,
-  FloatButton,
   Form,
   Input,
   InputNumber,
@@ -16,6 +15,8 @@ import {
   Popconfirm,
   Row,
   Select,
+  Space,
+  Statistic,
   Table,
   theme,
   Tooltip,
@@ -26,16 +27,20 @@ import type { MenuProps } from "antd";
 import {
   ArrowDownOutlined,
   ArrowUpOutlined,
+  BankOutlined,
   DeleteOutlined,
   FileExcelOutlined,
   FilePdfOutlined,
   HistoryOutlined,
   MoonOutlined,
-  SettingOutlined,
+  PlusOutlined,
+  PrinterOutlined,
   SunOutlined,
+  TableOutlined,
 } from "@ant-design/icons";
 import { RangePickerProps } from "antd/lib/date-picker";
 import packageJson from "../package.json";
+import logoPng from "/logo.png";
 import {
   calculateInterest,
   calculateQuarterlyInterest,
@@ -875,9 +880,64 @@ export function AppLayout({
 
   return (
     <Layout className="layout">
-      <div style={{ minWidth: 300, width: "100%", flex: 1 }}>
-        <Card style={{ margin: 15 }}>
-          <Form form={form} layout="vertical" onFinish={handleAddKonto}>
+      <Layout.Header className="app-header">
+        <Space align="center" size={10} className="app-header-brand">
+          <img
+            src={logoPng}
+            alt="WiDev Zinsrechner Logo"
+            className="app-header-logo-img"
+          />
+          <div className="app-header-titles">
+            <Typography.Title level={4} className="app-header-title">
+              Zinsrechner
+            </Typography.Title>
+            <Typography.Text type="secondary" className="app-header-subtitle">
+              Anlagen & Zinsabgrenzung
+            </Typography.Text>
+          </div>
+        </Space>
+        <div className="app-header-actions">
+          <Dropdown menu={{ items: historyMenuItems }} placement="bottomRight">
+            <Tooltip title="Chronologische Historie aller Banken">
+              <Button
+                type="text"
+                aria-label="Chronologische Historie aller Banken öffnen"
+                icon={<HistoryOutlined />}
+              >
+                Historie
+              </Button>
+            </Tooltip>
+          </Dropdown>
+          <Tooltip title="Theme wechseln">
+            <Button
+              type="text"
+              aria-label={isDarkMode ? "Helles Theme aktivieren" : "Dunkles Theme aktivieren"}
+              icon={isDarkMode ? <SunOutlined /> : <MoonOutlined />}
+              onClick={() => setDarkMode?.((prev) => !prev)}
+            />
+          </Tooltip>
+        </div>
+      </Layout.Header>
+
+      <Layout className="app-body">
+        <Layout.Sider
+          className="app-sider"
+          theme={isDarkMode ? "dark" : "light"}
+          width={360}
+          breakpoint="lg"
+          collapsedWidth={0}
+        >
+          <div style={{ padding: 16 }}>
+            <Card
+              className="form-card"
+              title={
+                <Space>
+                  <BankOutlined style={{ color: "var(--ant-color-primary, #1668dc)" }} />
+                  <span>Neue Anlage / Konto</span>
+                </Space>
+              }
+            >
+              <Form form={form} layout="vertical" onFinish={handleAddKonto} requiredMark>
             <Form.Item
               label="Bank Name"
               name="bankName"
@@ -924,7 +984,13 @@ export function AppLayout({
                 },
               ]}
             >
-              <Input type="number" />
+              <InputNumber
+                style={{ width: "100%" }}
+                min={0}
+                step={0.01}
+                addonAfter="%"
+                decimalSeparator=","
+              />
             </Form.Item>
             <Form.Item
               label="Nominal (€)"
@@ -936,7 +1002,13 @@ export function AppLayout({
                 },
               ]}
             >
-              <Input type="number" />
+              <InputNumber
+                style={{ width: "100%" }}
+                min={0}
+                step={1000}
+                addonAfter="€"
+                decimalSeparator=","
+              />
             </Form.Item>
             <Form.Item
               label="Zinsmethode"
@@ -948,15 +1020,44 @@ export function AppLayout({
                 <Select.Option value="30/360">Kaufmännisch (30/360)</Select.Option>
               </Select>
             </Form.Item>
-            <Button type="primary" htmlType="submit">
-              Hinzufügen
+            <Button type="primary" htmlType="submit" block icon={<PlusOutlined />}>
+              Konto hinzufügen
             </Button>
           </Form>
-        </Card>
-      </div>
-      <div style={{ minWidth: 300, width: "100%", flex: 3 }}>
-        <Card style={{ margin: "15px 15px 15px 0" }}>
-          <Row align="middle" gutter={16}>
+            </Card>
+          </div>
+        </Layout.Sider>
+
+        <Layout.Content className="app-content">
+          <div className="stat-grid">
+            <Card className="stat-card">
+              <Statistic title="Banken" value={data ? data.length : 0} />
+            </Card>
+            <Card className="stat-card">
+              <Statistic
+                title="Gesamtnominal (€)"
+                value={data ? data.reduce((sum, e) => sum + e.nominal, 0) : 0}
+                precision={2}
+              />
+            </Card>
+            <Card className="stat-card">
+              <Statistic
+                title="Gesamtzinsen (€)"
+                value={calculateTotalInterest()}
+                precision={2}
+              />
+            </Card>
+            <Card className="stat-card">
+              <Statistic
+                title="Quartalszinsen (€)"
+                value={calculateQuarterlyTotalInterest()}
+                precision={2}
+              />
+            </Card>
+          </div>
+
+          <Card className="control-card">
+            <Row align="middle" gutter={16}>
             <Form
               layout="horizontal"
               style={{ display: "flex", alignItems: "center" }}
@@ -980,40 +1081,37 @@ export function AppLayout({
           </Row>
         </Card>
 
-        <Card style={{ margin: "15px 15px 15px 0" }}>
-          <Typography.Text>
-            Gesamtzinsen: {calculateTotalInterest().toLocaleString("de-DE")} €
-          </Typography.Text>
-        </Card>
-
-        <Card style={{ margin: "15px 15px 15px 0" }}>
-          <Row style={{ gap: 15, alignItems: "center", marginBottom: 15 }}>
+        <Card
+          className="table-card"
+          title={
+            <Space>
+              <TableOutlined />
+              <span>Anlagenübersicht</span>
+            </Space>
+          }
+        >
+          <div className="table-toolbar">
             <Button
               type="default"
+              icon={<PrinterOutlined />}
               disabled={!data || !quartalsBeginn || !quartalsEnde}
               onClick={handlePrint}
             >
-              Tabelle Drucken
+              Tabelle drucken
             </Button>
-            <Dropdown menu={{ items: historyMenuItems }} placement="bottomLeft">
-              <Button type="default" icon={<HistoryOutlined />}>
-                Chronologische Historie
-              </Button>
-            </Dropdown>
-            <Typography.Title style={{ margin: 0 }} level={5}>
-              Legende:
-            </Typography.Title>
             <Tooltip title="Eine Zeile wird rot markiert, wenn das Enddatum weniger als einen Monat in der Zukunft liegt. (bald abgelaufen)">
-              <div
-                style={{
-                  width: 20,
-                  height: 20,
-                  backgroundColor: colorErrorBgHover,
-                  display: "inline-block",
-                }}
-              ></div>
+              <span className="legend">
+                <span
+                  className="legend-swatch"
+                  style={{ backgroundColor: colorErrorBgHover }}
+                  aria-hidden="true"
+                />
+                <Typography.Text type="secondary">
+                  Bald abgelaufen
+                </Typography.Text>
+              </span>
             </Tooltip>
-          </Row>
+          </div>
           <Table
             className="table"
             dataSource={data}
@@ -1021,7 +1119,10 @@ export function AppLayout({
               `${record.bankName}-${record.kontoNumber}-${index}`
             }
             pagination={false}
-            scroll={{ x: "max-content" }}
+            size="middle"
+            bordered
+            sticky
+            scroll={{ x: "max-content", y: "calc(100vh - 360px)" }}
             rowClassName={(record) => {
               const now = dayjs();
               return record.endDatum.isBefore(now.add(1, "month"))
@@ -1152,10 +1253,17 @@ export function AppLayout({
               render={(date: Dayjs) => date.format("DD.MM.YYYY")}
             />
             <Table.Column
-              title="Zinssatz (%)"
+              title="Zinssatz"
               width={120}
               dataIndex="zinssatz"
               key="zinssatz"
+              align="right"
+              render={(value: number) =>
+                value.toLocaleString("de-DE", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                }) + " %"
+              }
             />
             <Table.Column
               title="Zinsmethode"
@@ -1289,25 +1397,16 @@ export function AppLayout({
                   okText="Ja"
                   cancelText="Nein"
                 >
-                  <Button danger icon={<DeleteOutlined />} />
+                  <Button danger icon={<DeleteOutlined />} aria-label="Konto löschen" />
                 </Popconfirm>
               )}
             />
           </Table>
         </Card>
-      </div>
-      <FloatButton.Group
-        style={{ insetInlineEnd: 24 }}
-        trigger="click"
-        icon={<SettingOutlined />}
-      >
-        <Tooltip placement="right" title={"Theme"}>
-          <FloatButton
-            icon={isDarkMode ? <SunOutlined /> : <MoonOutlined />}
-            onClick={() => setDarkMode?.((prev) => !prev)}
-          />
-        </Tooltip>
-      </FloatButton.Group>
+        </Layout.Content>
+      </Layout>
+
+      
 
       <Typography.Text className="version-text">
         Version {packageJson.version}

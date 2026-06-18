@@ -1,17 +1,189 @@
+/* ============================================================
+   Zinsrechner – Global Styles
+   Professional, accessible, dark/light aware
+   ============================================================ */
+
 html,
 body,
 #root,
+.ant-app,
 .layout {
   margin: 0;
   height: 100%;
   scrollbar-width: thin;
 }
 
-.layout {
-  display: flex;
-  flex-flow: row;
+body {
+  /* Match the Layout bodyBg token so the whole window has a uniform
+     background, even before React mounts or in any gaps. */
+  background-color: #f5f7fa;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
+@media (prefers-color-scheme: dark) {
+  body {
+    background-color: #0f1115;
+  }
+}
+
+/* ---- App shell ---- */
+.layout {
+  min-height: 100vh;
+  flex-direction: column;
+}
+
+/* ---- Header ---- */
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(5, 5, 5, 0.06);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  padding-inline: 20px !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.app-header-brand {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.app-header-logo-img {
+  height: 34px;
+  width: auto;
+  display: block;
+  border-radius: 6px;
+}
+
+.app-header-logo {
+  font-size: 22px;
+  color: var(--ant-color-primary, #1668dc);
+}
+
+.app-header-titles {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.app-header-title {
+  margin: 0 !important;
+  font-weight: 600;
+}
+
+.app-header-subtitle {
+  margin: 0 !important;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.app-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* ---- Body / Sider / Content ---- */
+.app-body {
+  flex: 1;
+  flex-direction: row;
+  min-height: 0;
+}
+
+.app-sider {
+  border-inline-end: 1px solid rgba(5, 5, 5, 0.06);
+}
+
+.app-sider > .ant-layout-sider-children {
+  overflow-y: auto;
+  height: 100%;
+}
+
+.app-content {
+  padding: 20px 24px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* ---- Statistic cards ---- */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 12px;
+}
+
+.stat-card {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  transition: box-shadow 0.2s ease;
+}
+
+.stat-card:hover {
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.07);
+}
+
+.stat-card .ant-statistic-content-value {
+  font-size: 22px;
+}
+
+/* ---- Cards ---- */
+.form-card,
+.control-card,
+.table-card {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.table-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.table-card .ant-card-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.table-card .ant-table-wrapper {
+  flex: 1;
+  min-height: 0;
+}
+
+/* ---- Toolbar above the table ---- */
+.table-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-inline-start: auto;
+  font-size: 13px;
+}
+
+.legend-swatch {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  display: inline-block;
+  border: 1px solid rgba(5, 5, 5, 0.1);
+}
+
+/* ---- Table ---- */
 .table {
   .ant-table {
     .ant-table-container {
@@ -22,6 +194,28 @@ body,
       }
     }
   }
+}
+
+/* Make the table fill its card and scroll internally (both axes) so the
+   page itself does not scroll — the header/sider stay fixed in view. */
+.table-card .ant-table-wrapper,
+.table-card .ant-spin-nested-loading,
+.table-card .ant-spin-container,
+.table-card .ant-table,
+.table-card .ant-table-container {
+  height: 100%;
+}
+
+.table .ant-table-body {
+  overflow-x: auto !important;
+  overflow-y: auto !important;
+}
+
+/* Header cells: subtle, readable, not mangled */
+.table .ant-table-thead > tr > th {
+  background-color: var(--ant-color-fill-quaternary) !important;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .row-warning {
@@ -36,6 +230,11 @@ body,
   background-color: var(--ant-color-error-bg-hover);
 }
 
+/* Zebra striping for readability of dense financial data */
+.table .ant-table-tbody > tr:nth-child(even):not(.row-warning) > td {
+  background-color: rgba(0, 0, 0, 0.015);
+}
+
 @media (max-width: 800px) {
   .layout {
     flex-flow: column;
@@ -44,6 +243,45 @@ body,
 
 .version-text {
   position: fixed;
-  bottom: .5rem;
-  left: 1rem;
+  bottom: 0.5rem;
+  right: 1rem;
+  font-size: 12px;
+  z-index: 5;
+}
+
+/* ---- Accessibility ---- */
+/* Visible keyboard focus outlines everywhere */
+*:focus-visible {
+  outline: 2px solid var(--ant-color-primary, #1668dc);
+  outline-offset: 2px;
+}
+
+/* Ensure color is not the only signal: warning rows get a left accent */
+.row-warning > td:first-child {
+  box-shadow: inset 3px 0 0 var(--ant-color-error, #ff4d4f);
+}
+
+/* Respect reduced motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
+/* Skip-to-content link for keyboard users */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 1000;
+  background: var(--ant-color-primary, #1668dc);
+  color: #fff;
+  padding: 8px 16px;
+  border-radius: 0 0 8px 0;
+  font-weight: 600;
+}
+
+.skip-link:focus {
+  left: 0;
 }
