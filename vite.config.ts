@@ -80,6 +80,9 @@ export default defineConfig(({ command }) => {
           port: +url.port,
         };
       })(),
+    preview: {
+      allowedHosts: ["host.docker.internal"],
+    },
     clearScreen: false,
   };
 });

@@ -35,19 +35,9 @@ function calculate30360Days(startDate: Dayjs, endDate: Dayjs): number {
 export const calculateInterest = (
   entry: KontoData,
   pStartDatum: Dayjs,
-  pEndDatum: Dayjs
+  pEndDatum: Dayjs,
 ) => {
   const convention = entry.dayCountConvention || "actual";
-
-  console.log("calculateInterest called with:", {
-    bankName: entry.bankName,
-    kontoNumber: entry.kontoNumber,
-    startDatum: pStartDatum.format("DD.MM.YYYY"),
-    endDatum: pEndDatum.format("DD.MM.YYYY"),
-    nominal: entry.nominal,
-    zinssatz: entry.zinssatz,
-    dayCountConvention: convention,
-  });
 
   let days: number;
   let yearBasis: number;
@@ -61,23 +51,11 @@ export const calculateInterest = (
   }
 
   if (days <= 0) {
-    console.log(`Calculation: days = ${days} (invalid period) = 0 interest`);
     return 0.0;
   }
 
-  console.log(
-    `Calculation: days = ${pEndDatum.format("DD.MM.YYYY")} - ${pStartDatum.format("DD.MM.YYYY")} = ${days} days (${convention})`
-  );
-
   const interest = entry.nominal * (entry.zinssatz / 100) * (days / yearBasis);
   const roundedInterest = Math.round(interest * 100) / 100;
-
-  console.log(
-    `Calculation: interest = ${entry.nominal} * (${entry.zinssatz} / 100) * (${days} / ${yearBasis}) = ${interest}`
-  );
-  console.log(
-    `Calculation: roundedInterest = Math.round(${interest} * 100) / 100 = ${roundedInterest}`
-  );
 
   return roundedInterest;
 };
@@ -85,9 +63,12 @@ export const calculateInterest = (
 export const calculateQuarterlyInterest = (
   entry: KontoData,
   periodStart: Dayjs,
-  periodEnd: Dayjs
+  periodEnd: Dayjs,
 ) => {
-  if (periodEnd.isBefore(entry.startDatum) || periodStart.isAfter(entry.endDatum)) {
+  if (
+    periodEnd.isBefore(entry.startDatum) ||
+    periodStart.isAfter(entry.endDatum)
+  ) {
     return 0.0;
   }
 
@@ -102,8 +83,12 @@ export const calculateQuarterlyInterest = (
     effectiveStart.isSame(periodStart, "day") &&
     effectiveEnd.isSame(periodEnd, "day");
 
-  if ((entry.dayCountConvention || "actual") === "30/360" && isFullSelectedPeriod) {
-    const quarterlyInterest = entry.nominal * (entry.zinssatz / 100) * (90 / 360);
+  if (
+    (entry.dayCountConvention || "actual") === "30/360" &&
+    isFullSelectedPeriod
+  ) {
+    const quarterlyInterest =
+      entry.nominal * (entry.zinssatz / 100) * (90 / 360);
     return Math.round(quarterlyInterest * 100) / 100;
   }
 

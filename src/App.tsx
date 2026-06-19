@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { App as AntApp, ConfigProvider, theme } from "antd";
 import deDE from "antd/locale/de_DE";
 import dayjs from "dayjs";
@@ -8,28 +8,30 @@ import { AppLayout } from "./AppLayout";
 dayjs.locale("de");
 
 function App() {
-  const [darkMode, setDarkMode] = useState(false);
-  const windowQuery = window.matchMedia("(prefers-color-scheme:dark)");
-
-  const darkModeChange = useCallback((event: MediaQueryListEvent) => {
-    console.log(event.matches);
-    setDarkMode(event.matches);
-  }, []);
+  const [darkMode, setDarkMode] = useState(
+    () => window.matchMedia("(prefers-color-scheme: dark)").matches,
+  );
 
   const toggleDarkMode = useCallback(() => {
     setDarkMode((prev) => !prev);
   }, []);
 
   useEffect(() => {
+    const windowQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    const darkModeChange = (event: MediaQueryListEvent) => {
+      setDarkMode(event.matches);
+    };
+
     windowQuery.addEventListener("change", darkModeChange);
     return () => {
       windowQuery.removeEventListener("change", darkModeChange);
     };
-  }, [windowQuery, darkModeChange]);
+  }, []);
 
   useEffect(() => {
-    setDarkMode(windowQuery.matches);
-  }, []);
+    document.documentElement.dataset.theme = darkMode ? "dark" : "light";
+    document.documentElement.style.colorScheme = darkMode ? "dark" : "light";
+  }, [darkMode]);
 
   return (
     <ConfigProvider
@@ -53,7 +55,7 @@ function App() {
             bodyBg: darkMode ? "#0f1115" : "#f5f7fa",
           },
           Card: {
-            borderRadiusLG: 12,
+            borderRadiusLG: 8,
             headerHeight: 52,
           },
           Button: { controlHeight: 36 },
@@ -64,7 +66,7 @@ function App() {
       }}
     >
       <AntApp>
-        <AppLayout isDarkMode={darkMode} setDarkMode={toggleDarkMode} />
+        <AppLayout isDarkMode={darkMode} onToggleDarkMode={toggleDarkMode} />
       </AntApp>
     </ConfigProvider>
   );

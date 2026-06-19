@@ -1,8 +1,3 @@
-/* ============================================================
-   Zinsrechner – Global Styles
-   Professional, accessible, dark/light aware
-   ============================================================ */
-
 html,
 body,
 #root,
@@ -14,67 +9,54 @@ body,
 }
 
 body {
-  /* Match the Layout bodyBg token so the whole window has a uniform
-     background, even before React mounts or in any gaps. */
   background-color: #f5f7fa;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-@media (prefers-color-scheme: dark) {
-  body {
-    background-color: #0f1115;
-  }
+html[data-theme="dark"] body {
+  background-color: #0f1115;
 }
 
-/* ---- App shell ---- */
 .layout {
   height: 100vh;
-  max-height: 100vh;
+  min-height: 100vh;
   overflow: hidden;
-  flex-direction: column;
+  background: var(--ant-color-bg-layout, #f5f7fa);
 }
 
-/* ---- Header ---- */
 .app-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid rgba(5, 5, 5, 0.06);
-  position: sticky;
-  top: 0;
-  z-index: 20;
   flex: 0 0 auto;
+  gap: 16px;
+  min-width: 0;
+  border-bottom: 1px solid
+    var(--ant-color-border-secondary, rgba(5, 5, 5, 0.06));
+  z-index: 20;
   padding-inline: 20px !important;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
-  background-color: #ffffff !important;
-}
-@media (prefers-color-scheme: dark) {
-  .app-header {
-    background-color: #141414 !important;
-  }
+  background-color: var(--ant-color-bg-container, #ffffff) !important;
 }
 
 .app-header-brand {
   display: flex;
   align-items: center;
-  gap: 4px;
+  min-width: 0;
+  gap: 6px;
 }
 
 .app-header-logo-img {
-  height: 34px;
-  width: auto;
   display: block;
+  width: auto;
+  height: 34px;
   border-radius: 6px;
-}
-
-.app-header-logo {
-  font-size: 22px;
-  color: var(--ant-color-primary, #1668dc);
 }
 
 .app-header-titles {
   display: flex;
+  min-width: 0;
   flex-direction: column;
   line-height: 1.2;
 }
@@ -86,62 +68,71 @@ body {
 
 .app-header-subtitle {
   margin: 0 !important;
-  white-space: nowrap;
+  overflow: hidden;
   font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .app-header-actions {
   display: flex;
   align-items: center;
+  flex: 0 0 auto;
   gap: 2px;
 }
 
-/* ---- Body / Sider / Content ---- */
 .app-body {
   flex: 1 1 0;
   min-height: 0;
-  height: 0;
   overflow: hidden;
 }
 
 .app-sider {
-  border-inline-end: 1px solid rgba(5, 5, 5, 0.06);
-  background-color: #ffffff !important;
   flex: 0 0 auto !important;
   overflow: hidden;
-}
-@media (prefers-color-scheme: dark) {
-  .app-sider {
-    background-color: #141414 !important;
-  }
+  border-inline-end: 1px solid
+    var(--ant-color-border-secondary, rgba(5, 5, 5, 0.06));
+  background-color: var(--ant-color-bg-container, #ffffff) !important;
 }
 
 .app-sider > .ant-layout-sider-children {
-  overflow-y: auto;
   height: 100%;
+  overflow-y: auto;
+}
+
+.app-sider-inner {
+  padding: 16px;
 }
 
 .app-content {
-  padding: 20px 24px 24px;
   display: flex;
-  flex-direction: column;
-  gap: 16px;
-  overflow-y: auto;
-  overflow-x: hidden;
-  min-height: 0;
   flex: 1 1 0;
-  height: 0;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  gap: 16px;
+  padding: 20px 24px 24px;
+  overflow: auto;
 }
 
-/* ---- Statistic cards ---- */
+.app-content:focus {
+  outline: none;
+}
+
 .stat-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
   gap: 12px;
 }
 
-.stat-card {
+.stat-card,
+.form-card,
+.control-card,
+.table-card {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.stat-card {
   transition: box-shadow 0.2s ease;
 }
 
@@ -153,33 +144,32 @@ body {
   font-size: 22px;
 }
 
-/* ---- Cards ---- */
-.form-card,
-.control-card,
-.table-card {
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+.control-panel {
+  display: grid;
+  grid-template-columns: minmax(260px, 420px) auto;
+  align-items: end;
+  gap: 20px;
+}
+
+.quarter-form .ant-form-item,
+.quarter-range {
+  margin-bottom: 0;
 }
 
 .table-card {
-  flex: 1;
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
-  min-height: 0;
+  min-height: 420px;
 }
 
 .table-card .ant-card-body {
-  flex: 1;
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
   min-height: 0;
 }
 
-.table-card .ant-table-wrapper {
-  flex: 1;
-  min-height: 0;
-}
-
-/* ---- Toolbar above the table ---- */
 .table-toolbar {
   display: flex;
   align-items: center;
@@ -197,112 +187,162 @@ body {
 }
 
 .legend-swatch {
+  display: inline-block;
   width: 16px;
   height: 16px;
+  border: 1px solid var(--ant-color-border, rgba(5, 5, 5, 0.1));
   border-radius: 4px;
-  display: inline-block;
-  border: 1px solid rgba(5, 5, 5, 0.1);
 }
 
-/* ---- Table ---- */
-.table {
-  .ant-table {
-    .ant-table-container {
-      .ant-table-body,
-      .ant-table-content {
-        scrollbar-width: thin;
-        scrollbar-gutter: stable;
-      }
-    }
-  }
+.table-region {
+  flex: 1 1 auto;
+  min-height: 260px;
 }
 
-/* Make the table fill its card and scroll internally (both axes) so the
-   page itself does not scroll — the header/sider stay fixed in view. */
-.table-card .ant-table-wrapper,
-.table-card .ant-spin-nested-loading,
-.table-card .ant-spin-container,
-.table-card .ant-table,
-.table-card .ant-table-container {
+.table-region .ant-table-wrapper,
+.table-region .ant-spin-nested-loading,
+.table-region .ant-spin-container,
+.table-region .ant-table,
+.table-region .ant-table-container {
   height: 100%;
 }
 
-.table .ant-table-body {
-  overflow-x: auto !important;
-  overflow-y: auto !important;
+.table .ant-table-body,
+.table .ant-table-content {
+  scrollbar-width: thin;
+  scrollbar-gutter: stable;
 }
 
-/* Header cells: subtle, readable, not mangled */
 .table .ant-table-thead > tr > th {
   background-color: var(--ant-color-fill-quaternary) !important;
   font-weight: 600;
-  white-space: nowrap;
+  line-height: 1.25;
+  white-space: normal;
 }
 
-.row-warning {
-  background-color: var(--ant-color-error-bg-hover);
-}
-
-.row-warning .ant-table-cell-fix-left {
-  background-color: var(--ant-color-error-bg-hover);
-}
-
-.row-warning .ant-table-cell-fix-right {
-  background-color: var(--ant-color-error-bg-hover);
-}
-
-/* Zebra striping for readability of dense financial data */
 .table .ant-table-tbody > tr:nth-child(even):not(.row-warning) > td {
-  background-color: rgba(0, 0, 0, 0.015);
+  background-color: color-mix(
+    in srgb,
+    var(--ant-color-fill-quaternary) 65%,
+    transparent
+  );
 }
 
-@media (max-width: 800px) {
-  .layout {
-    flex-flow: column;
-  }
+.row-warning > td {
+  background-color: var(--ant-color-error-bg-hover) !important;
 }
 
-.version-text {
-  position: fixed;
-  bottom: 0.5rem;
-  right: 1rem;
-  font-size: 12px;
-  z-index: 5;
+.row-warning > td:first-child {
+  box-shadow: inset 3px 0 0 var(--ant-color-error, #ff4d4f);
 }
 
-/* ---- Accessibility ---- */
-/* Visible keyboard focus outlines everywhere */
+.row-warning .ant-table-cell-fix-left,
+.row-warning .ant-table-cell-fix-right {
+  background-color: var(--ant-color-error-bg-hover) !important;
+}
+
 *:focus-visible {
   outline: 2px solid var(--ant-color-primary, #1668dc);
   outline-offset: 2px;
 }
 
-/* Ensure color is not the only signal: warning rows get a left accent */
-.row-warning > td:first-child {
-  box-shadow: inset 3px 0 0 var(--ant-color-error, #ff4d4f);
-}
-
-/* Respect reduced motion preferences */
-@media (prefers-reduced-motion: reduce) {
-  * {
-    transition: none !important;
-    animation: none !important;
-  }
-}
-
-/* Skip-to-content link for keyboard users */
 .skip-link {
   position: absolute;
-  left: -9999px;
   top: 0;
+  left: -9999px;
   z-index: 1000;
-  background: var(--ant-color-primary, #1668dc);
-  color: #fff;
   padding: 8px 16px;
   border-radius: 0 0 8px 0;
+  color: #ffffff;
+  background: var(--ant-color-primary, #1668dc);
   font-weight: 600;
 }
 
 .skip-link:focus {
   left: 0;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (max-width: 1080px) {
+  .layout {
+    height: auto;
+    overflow: auto;
+  }
+
+  .app-header {
+    height: auto;
+    min-height: 60px;
+    padding-block: 8px;
+  }
+
+  .app-header-subtitle {
+    white-space: normal;
+  }
+
+  .app-body {
+    flex-direction: column;
+    min-height: auto;
+    overflow: visible;
+  }
+
+  .app-sider {
+    width: 100% !important;
+    max-width: none !important;
+    flex: 0 0 auto !important;
+    border-inline-end: 0;
+    border-bottom: 1px solid
+      var(--ant-color-border-secondary, rgba(5, 5, 5, 0.06));
+  }
+
+  .app-sider > .ant-layout-sider-children,
+  .app-content {
+    height: auto;
+    overflow: visible;
+  }
+
+  .table-card {
+    min-height: 520px;
+  }
+}
+
+@media (max-width: 720px) {
+  .app-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .app-header-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .app-content {
+    padding: 16px;
+  }
+
+  .control-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .legend {
+    width: 100%;
+    margin-inline-start: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
 }

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import dayjs, { Dayjs } from "dayjs";
 import isLeapYear from "dayjs/plugin/isLeapYear";
 
@@ -13,7 +13,6 @@ import {
   Layout,
   Modal,
   Popconfirm,
-  Row,
   Select,
   Space,
   Statistic,
@@ -64,6 +63,15 @@ interface KontoData {
   kommulierteSumme?: number;
 }
 
+interface KontoFormValues {
+  bankName: string;
+  kontoNumber: string;
+  dateRange: [Dayjs, Dayjs];
+  zinssatz: number;
+  nominal: number;
+  dayCountConvention?: DayCountConvention;
+}
+
 interface HistoryRow {
   datum: string; // DD.MM.YYYY
   bankName: string;
@@ -109,7 +117,8 @@ function buildHistoryRows(data: KontoData[] | undefined): HistoryRow[] {
 
   // Sort chronologically; for the same date, sort by bank name for stability.
   events.sort((a, b) => {
-    if (!a.datum.isSame(b.datum, "day")) return a.datum.valueOf() - b.datum.valueOf();
+    if (!a.datum.isSame(b.datum, "day"))
+      return a.datum.valueOf() - b.datum.valueOf();
     return a.bankName.localeCompare(b.bankName);
   });
 
@@ -135,24 +144,42 @@ function buildHistoryRows(data: KontoData[] | undefined): HistoryRow[] {
 }
 
 export function AppLayout({
-  setDarkMode,
+  onToggleDarkMode,
   isDarkMode,
 }: {
-  setDarkMode?: (value: ((prevState: boolean) => boolean) | boolean) => void;
+  onToggleDarkMode?: () => void;
   isDarkMode?: boolean;
 }) {
   const {
     token: { colorErrorBgHover },
   } = theme.useToken();
-  const [data, setData] = useState<KontoData[] | undefined>(undefined);
+  const [data, setData] = useState<KontoData[]>([]);
   const [quartalsBeginn, setQuartalsBeginn] = useState<Dayjs | null>(null);
   const [quartalsEnde, setQuartalsEnde] = useState<Dayjs | null>(null);
-  const [form] = Form.useForm();
+  const [tableScrollY, setTableScrollY] = useState(320);
+  const hasLoadedData = useRef(false);
+  const tableRegionRef = useRef<HTMLDivElement>(null);
+  const [form] = Form.useForm<KontoFormValues>();
 
   useEffect(() => {
-    // Load data from JSON file on mount using the exposed preload functions
-    window.ipcRenderer.invoke("load-data").then((fileData: string) => {
-      if (fileData) {
+    let cancelled = false;
+
+    if (!window.ipcRenderer) {
+      hasLoadedData.current = true;
+      return;
+    }
+
+    window.ipcRenderer
+      .invoke("load-data")
+      .then((fileData: string) => {
+        if (cancelled) return;
+        hasLoadedData.current = true;
+
+        if (!fileData) {
+          setData([]);
+          return;
+        }
+
         try {
           const parsedData: KontoData[] = JSON.parse(fileData);
           setData(
@@ -160,50 +187,80 @@ export function AppLayout({
               ...entry,
               startDatum: dayjs(entry.startDatum),
               endDatum: dayjs(entry.endDatum),
-            }))
+            })),
           );
         } catch (error) {
           console.error("Error parsing JSON data:", error);
+          message.error(
+            "Die gespeicherten Kontodaten konnten nicht geladen werden.",
+          );
+          setData([]);
         }
-      }
-    });
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        hasLoadedData.current = true;
+        console.error("Error loading data:", error);
+        message.error("Die Kontodaten konnten nicht geladen werden.");
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
-    if (!data) return;
+    if (!hasLoadedData.current || !window.ipcRenderer) return;
     window.ipcRenderer.send("save-data", JSON.stringify(data, null, 2));
   }, [data]);
 
-  const handleAddKonto = (values: any) => {
-    if (!data) return;
+  useEffect(() => {
+    const tableRegion = tableRegionRef.current;
+    if (!tableRegion) return;
+
+    const updateTableHeight = () => {
+      setTableScrollY(Math.max(240, tableRegion.clientHeight - 96));
+    };
+
+    updateTableHeight();
+    const observer = new ResizeObserver(updateTableHeight);
+    observer.observe(tableRegion);
+    window.addEventListener("resize", updateTableHeight);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", updateTableHeight);
+    };
+  }, []);
+
+  const handleAddKonto = (values: KontoFormValues) => {
     const [startDatum, endDatum] = values.dateRange;
-    const { bankName, kontoNumber, zinssatz, nominal, dayCountConvention } = values;
+    const { bankName, kontoNumber, zinssatz, nominal, dayCountConvention } =
+      values;
     const newKonto: KontoData = {
-      bankName,
-      kontoNumber,
+      bankName: bankName.trim(),
+      kontoNumber: kontoNumber.trim(),
       startDatum,
       endDatum,
-      zinssatz: parseFloat(zinssatz),
-      nominal: parseFloat(nominal),
+      zinssatz: Number(zinssatz),
+      nominal: Number(nominal),
       dayCountConvention: dayCountConvention || "actual",
       kommulierteZinsen: 0,
       verbuchteRueckstellung: 0,
       kommulierteSumme: 0,
     };
-    setData([...data, newKonto]);
+    setData((currentData) => [...currentData, newKonto]);
     form.resetFields();
+    message.success("Konto wurde hinzugefügt.");
   };
 
   const handleDeleteKonto = (index: number) => {
-    if (!data) return;
-    const updatedData = [...data];
-    updatedData.splice(index, 1);
-    setData(updatedData);
+    setData((currentData) =>
+      currentData.filter((_, itemIndex) => itemIndex !== index),
+    );
   };
 
   const calculateTotalInterest = () => {
-    if (!data) return 0;
-    console.log("calculateTotalInterest called");
     const total = data.reduce((total, entry) => {
       return total + calculateInterest(entry, entry.startDatum, entry.endDatum);
     }, 0);
@@ -211,14 +268,11 @@ export function AppLayout({
   };
 
   const calculateSingleInterest = (entry: KontoData) => {
-    console.log("calculateSingleInterest called with:", { entry });
     return calculateInterest(entry, entry.startDatum, entry.endDatum);
   };
 
   const calculateQuarterlyTotalInterest = () => {
-    if (!data) return 0;
     if (!quartalsBeginn || !quartalsEnde) return 0;
-    console.log("calculateQuarterlyTotalInterest called");
 
     const total = data.reduce((total, entry) => {
       return total + calculateQuarterlySingleInterest(entry);
@@ -228,23 +282,12 @@ export function AppLayout({
 
   const calculateQuarterlySingleInterest = (entry: KontoData) => {
     if (!quartalsBeginn || !quartalsEnde) return 0;
-    console.log("calculateQuarterlySingleInterest called with:", {
-      entry,
-      quartalsBeginn: quartalsBeginn.format("DD.MM.YYYY"),
-      quartalsEnde: quartalsEnde.format("DD.MM.YYYY"),
-    });
     return calculateQuarterlyInterest(entry, quartalsBeginn, quartalsEnde);
   };
 
   const handleQuartalsRangeChange: RangePickerProps["onChange"] = (
-    dates: [start: Dayjs | null, end: Dayjs | null] | null
+    dates: [start: Dayjs | null, end: Dayjs | null] | null,
   ) => {
-    console.log(
-      "handleQuartalsRangeChange called with:",
-      dates
-        ? [dates[0]?.format("DD.MM.YYYY"), dates[1]?.format("DD.MM.YYYY")]
-        : null
-    );
     if (dates) {
       setQuartalsBeginn(dates[0]);
       setQuartalsEnde(dates[1]);
@@ -256,10 +299,6 @@ export function AppLayout({
 
   const calculateAccumulatedInterest = (entry: KontoData) => {
     if (!quartalsEnde) return 0;
-    console.log("calculateAccumulatedInterest called with:", {
-      entry,
-      quartalsEnde: quartalsEnde.format("DD.MM.YYYY"),
-    });
     if (quartalsEnde.isBefore(entry.startDatum)) return 0;
     if (quartalsEnde.isAfter(entry.endDatum)) {
       return calculateInterest(entry, entry.startDatum, entry.endDatum);
@@ -268,23 +307,22 @@ export function AppLayout({
   };
 
   const handlePrint = () => {
-    if (!data || !quartalsBeginn || !quartalsEnde) return;
-    // Split data into active and expired accounts
+    if (data.length === 0 || !quartalsBeginn || !quartalsEnde) return;
     const activeData = data.filter(
       (entry) =>
-        // If both start and end of entry are overlapping with quartalsStart and quartalsEnde
-        !(entry.endDatum < quartalsBeginn || entry.startDatum > quartalsEnde)
+        !entry.endDatum.isBefore(quartalsBeginn, "day") &&
+        !entry.startDatum.isAfter(quartalsEnde, "day"),
     );
     const inactiveData = data.filter(
       (entry) =>
-        // If both start and end of entry are not overlapping with quartalsStart and quartalsEnde
-        entry.endDatum < quartalsBeginn || entry.startDatum > quartalsEnde
+        entry.endDatum.isBefore(quartalsBeginn, "day") ||
+        entry.startDatum.isAfter(quartalsEnde, "day"),
     );
 
     // Build the table content for a given data array
     const buildTableContent = (dataArray: KontoData[]) => {
       const sortedData = [...dataArray].sort((a, b) =>
-        a.bankName.localeCompare(b.bankName)
+        a.bankName.localeCompare(b.bankName),
       );
       const groupedByBank = sortedData.reduce(
         (acc, entry) => {
@@ -294,7 +332,7 @@ export function AppLayout({
           acc[entry.bankName].push(entry);
           return acc;
         },
-        {} as Record<string, KontoData[]>
+        {} as Record<string, KontoData[]>,
       );
 
       let tableContent = "";
@@ -329,14 +367,14 @@ export function AppLayout({
                 {
                   minimumFractionDigits: 2,
                   maximumFractionDigits: 2,
-                }
+                },
               )}</td>
               <td class="align-right">${quarterlyInterest.toLocaleString(
                 "de-DE",
                 {
                   minimumFractionDigits: 2,
                   maximumFractionDigits: 2,
-                }
+                },
               )}</td>
               <td class="align-right">${paid.toLocaleString("de-DE", {
                 minimumFractionDigits: 2,
@@ -354,23 +392,23 @@ export function AppLayout({
         // Calculate group totals
         const groupNominal = entries.reduce(
           (sum, entry) => sum + entry.nominal,
-          0
+          0,
         );
         const groupSingleInterest = entries.reduce(
           (sum, entry) => sum + calculateSingleInterest(entry),
-          0
+          0,
         );
         const groupAccumulated = entries.reduce(
           (sum, entry) => sum + calculateAccumulatedInterest(entry),
-          0
+          0,
         );
         const groupQuarterly = entries.reduce(
           (sum, entry) => sum + calculateQuarterlySingleInterest(entry),
-          0
+          0,
         );
         const groupPaid = entries.reduce(
           (sum, entry) => sum + (entry.verbuchteRueckstellung || 0),
-          0
+          0,
         );
         const groupReserve = groupAccumulated - groupPaid;
 
@@ -396,7 +434,7 @@ export function AppLayout({
               {
                 minimumFractionDigits: 2,
                 maximumFractionDigits: 2,
-              }
+              },
             )}</td>
             <td class="align-right">${groupAccumulated.toLocaleString("de-DE", {
               minimumFractionDigits: 2,
@@ -428,46 +466,46 @@ export function AppLayout({
     // Calculate overall totals for active accounts
     const activeTotalNominal = activeData.reduce(
       (sum, entry) => sum + entry.nominal,
-      0
+      0,
     );
     const activeTotalSingleInterest = activeData.reduce(
       (sum, entry) => sum + calculateSingleInterest(entry),
-      0
+      0,
     );
     const activeTotalAccumulated = activeData.reduce(
       (sum, entry) => sum + calculateAccumulatedInterest(entry),
-      0
+      0,
     );
     const activeTotalQuarterly = activeData.reduce(
       (sum, entry) => sum + calculateQuarterlySingleInterest(entry),
-      0
+      0,
     );
     const activeTotalPaid = activeData.reduce(
       (sum, entry) => sum + (entry.verbuchteRueckstellung || 0),
-      0
+      0,
     );
     const activeTotalReserve = activeTotalAccumulated - activeTotalPaid;
 
     // Calculate overall totals for expired accounts
     const expiredTotalNominal = inactiveData.reduce(
       (sum, entry) => sum + entry.nominal,
-      0
+      0,
     );
     const expiredTotalSingleInterest = inactiveData.reduce(
       (sum, entry) => sum + calculateSingleInterest(entry),
-      0
+      0,
     );
     const expiredTotalAccumulated = inactiveData.reduce(
       (sum, entry) => sum + calculateAccumulatedInterest(entry),
-      0
+      0,
     );
     const expiredTotalQuarterly = inactiveData.reduce(
       (sum, entry) => sum + calculateQuarterlySingleInterest(entry),
-      0
+      0,
     );
     const expiredTotalPaid = inactiveData.reduce(
       (sum, entry) => sum + (entry.verbuchteRueckstellung || 0),
-      0
+      0,
     );
     const expiredTotalReserve = expiredTotalAccumulated - expiredTotalPaid;
 
@@ -475,19 +513,19 @@ export function AppLayout({
     const allTotalNominal = data.reduce((sum, entry) => sum + entry.nominal, 0);
     const allTotalSingleInterest = data.reduce(
       (sum, entry) => sum + calculateSingleInterest(entry),
-      0
+      0,
     );
     const allTotalAccumulated = data.reduce(
       (sum, entry) => sum + calculateAccumulatedInterest(entry),
-      0
+      0,
     );
     const allTotalQuarterly = data.reduce(
       (sum, entry) => sum + calculateQuarterlySingleInterest(entry),
-      0
+      0,
     );
     const allTotalPaid = data.reduce(
       (sum, entry) => sum + (entry.verbuchteRueckstellung || 0),
-      0
+      0,
     );
     const allTotalReserve = allTotalAccumulated - allTotalPaid;
 
@@ -495,7 +533,7 @@ export function AppLayout({
     <table>
       <thead>
         <tr>
-          <th>Konto Nummer</th>
+          <th>Kontonummer</th>
           <th>Startdatum</th>
           <th>Enddatum</th>
           <th>Lfz. Mon.</th>
@@ -503,7 +541,7 @@ export function AppLayout({
           <th>Zinsmethode</th>
           <th>Nominal (€)</th>
           <th>Zinsen gesamte Laufzeit (€)</th>
-          <th>Kommulierte Zinsen bis Stichtag (€)</th>
+          <th>Kumulierte Zinsen bis Stichtag (€)</th>
           <th>Zu buchende Quartalszinsen (€)</th>
           <th>Bezahlte Zinsen (€)</th>
           <th>Zinsabgrenzung (KTO 2301) (€)</th>
@@ -517,7 +555,7 @@ export function AppLayout({
     <table>
       <thead>
         <tr>
-          <th>Konto Nummer</th>
+          <th>Kontonummer</th>
           <th>Startdatum</th>
           <th>Enddatum</th>
           <th>Lfz. Mon.</th>
@@ -525,7 +563,7 @@ export function AppLayout({
           <th>Zinsmethode</th>
           <th>Nominal (€)</th>
           <th>Zinsen gesamte Laufzeit (€)</th>
-          <th>Kommulierte Zinsen bis Stichtag (€)</th>
+          <th>Kumulierte Zinsen bis Stichtag (€)</th>
           <th>Zu buchende Quartalszinsen (€)</th>
           <th>Bezahlte Zinsen (€)</th>
           <th>Zinsabgrenzung (KTO 2301) (€)</th>
@@ -607,7 +645,7 @@ export function AppLayout({
           ${
             quartalsBeginn && quartalsEnde
               ? `<p>Quartalsbeginn: ${quartalsBeginn.format(
-                  "DD.MM.YYYY"
+                  "DD.MM.YYYY",
                 )}, Quartalsende: ${quartalsEnde.format("DD.MM.YYYY")}</p>`
               : ""
           }
@@ -623,7 +661,7 @@ export function AppLayout({
                   {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
-                  }
+                  },
                 )} €</td>
               </tr>
               <tr>
@@ -633,17 +671,17 @@ export function AppLayout({
                   {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
-                  }
+                  },
                 )} €</td>
               </tr>
               <tr>
-                <td>Gesamtsumme der kummulierten Zinsen bis Stichtag:</td>
+                <td>Gesamtsumme der kumulierten Zinsen bis Stichtag:</td>
                 <td class="align-right">${activeTotalAccumulated.toLocaleString(
                   "de-DE",
                   {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
-                  }
+                  },
                 )} €</td>
               </tr>
               <tr>
@@ -653,7 +691,7 @@ export function AppLayout({
                   {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
-                  }
+                  },
                 )} €</td>
               </tr>
               <tr>
@@ -663,7 +701,7 @@ export function AppLayout({
                   {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
-                  }
+                  },
                 )} €</td>
               </tr>
               <tr>
@@ -673,7 +711,7 @@ export function AppLayout({
                   {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
-                  }
+                  },
                 )} €</td>
               </tr>
             </table>
@@ -693,7 +731,7 @@ export function AppLayout({
                   {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
-                  }
+                  },
                 )} €</td>
               </tr>
               <tr>
@@ -703,17 +741,17 @@ export function AppLayout({
                   {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
-                  }
+                  },
                 )} €</td>
               </tr>
               <tr>
-                <td>Gesamtsumme der kummulierten Zinsen bis Stichtag:</td>
+                <td>Gesamtsumme der kumulierten Zinsen bis Stichtag:</td>
                 <td class="align-right">${expiredTotalAccumulated.toLocaleString(
                   "de-DE",
                   {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
-                  }
+                  },
                 )} €</td>
               </tr>
               <tr>
@@ -723,7 +761,7 @@ export function AppLayout({
                   {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
-                  }
+                  },
                 )} €</td>
               </tr>
               <tr>
@@ -733,7 +771,7 @@ export function AppLayout({
                   {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
-                  }
+                  },
                 )} €</td>
               </tr>
               <tr>
@@ -743,7 +781,7 @@ export function AppLayout({
                   {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
-                  }
+                  },
                 )} €</td>
               </tr>
             </table>
@@ -761,7 +799,7 @@ export function AppLayout({
                   {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
-                  }
+                  },
                 )} €</td>
               </tr>
               <tr>
@@ -771,17 +809,17 @@ export function AppLayout({
                   {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
-                  }
+                  },
                 )} €</td>
               </tr>
               <tr>
-                <td>Gesamtsumme der kummulierten Zinsen bis Stichtag:</td>
+                <td>Gesamtsumme der kumulierten Zinsen bis Stichtag:</td>
                 <td class="align-right">${allTotalAccumulated.toLocaleString(
                   "de-DE",
                   {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
-                  }
+                  },
                 )} €</td>
               </tr>
               <tr>
@@ -791,7 +829,7 @@ export function AppLayout({
                   {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
-                  }
+                  },
                 )} €</td>
               </tr>
               <tr>
@@ -808,7 +846,7 @@ export function AppLayout({
                   {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
-                  }
+                  },
                 )} €</td>
               </tr>
             </table>
@@ -827,10 +865,7 @@ export function AppLayout({
       message.warning("Keine Daten zum Exportieren vorhanden.");
       return;
     }
-    const result = await window.ipcRenderer.invoke(
-      "export-history-pdf",
-      rows,
-    );
+    const result = await window.ipcRenderer.invoke("export-history-pdf", rows);
     if (result?.saved) {
       message.success(`Historie als PDF gespeichert: ${result.path}`);
     }
@@ -857,7 +892,7 @@ export function AppLayout({
       icon: <HistoryOutlined />,
       label: "Vorschau anzeigen",
       onClick: () => setHistoryPreviewOpen(true),
-      disabled: !data || data.length === 0,
+      disabled: data.length === 0,
     },
     { type: "divider" },
     {
@@ -865,22 +900,25 @@ export function AppLayout({
       icon: <FilePdfOutlined />,
       label: "Als PDF exportieren",
       onClick: handleExportHistoryPdf,
-      disabled: !data || data.length === 0,
+      disabled: data.length === 0,
     },
     {
       key: "excel",
       icon: <FileExcelOutlined />,
       label: "Als Excel exportieren",
       onClick: handleExportHistoryExcel,
-      disabled: !data || data.length === 0,
+      disabled: data.length === 0,
     },
   ];
 
   const historyPreviewRows = buildHistoryRows(data);
 
   return (
-    <Layout className="layout">
-      <Layout.Header className="app-header">
+    <Layout className="layout" data-theme={isDarkMode ? "dark" : "light"}>
+      <a href="#main-content" className="skip-link">
+        Zum Inhalt springen
+      </a>
+      <Layout.Header className="app-header" role="banner">
         <Space align="center" size={10} className="app-header-brand">
           <img
             src={logoPng}
@@ -892,7 +930,7 @@ export function AppLayout({
               Zinsrechner
             </Typography.Title>
             <Typography.Text type="secondary" className="app-header-subtitle">
-              Anlagen & Zinsabgrenzung
+              Anlagen & Zinsabgrenzung · Version {packageJson.version}
             </Typography.Text>
           </div>
         </Space>
@@ -911,9 +949,13 @@ export function AppLayout({
           <Tooltip title="Theme wechseln">
             <Button
               type="text"
-              aria-label={isDarkMode ? "Helles Theme aktivieren" : "Dunkles Theme aktivieren"}
+              aria-label={
+                isDarkMode
+                  ? "Helles Theme aktivieren"
+                  : "Dunkles Theme aktivieren"
+              }
               icon={isDarkMode ? <SunOutlined /> : <MoonOutlined />}
-              onClick={() => setDarkMode?.((prev) => !prev)}
+              onClick={onToggleDarkMode}
             />
           </Tooltip>
         </div>
@@ -924,119 +966,153 @@ export function AppLayout({
           className="app-sider"
           theme={isDarkMode ? "dark" : "light"}
           width={360}
-          breakpoint="lg"
-          collapsedWidth={0}
+          role="complementary"
+          aria-label="Konto erfassen"
         >
-          <div style={{ padding: 16 }}>
+          <div className="app-sider-inner">
             <Card
               className="form-card"
               title={
                 <Space>
-                  <BankOutlined style={{ color: "var(--ant-color-primary, #1668dc)" }} />
-                  <span>Neue Anlage / Konto</span>
+                  <BankOutlined
+                    style={{ color: "var(--ant-color-primary, #1668dc)" }}
+                  />
+                  <span>Neue Anlage erfassen</span>
                 </Space>
               }
             >
-              <Form form={form} layout="vertical" onFinish={handleAddKonto} requiredMark>
-            <Form.Item
-              label="Bank Name"
-              name="bankName"
-              rules={[
-                {
-                  required: true,
-                  message: "Bitte geben Sie den Banknamen ein!",
-                },
-              ]}
-            >
-              <Input />
-            </Form.Item>
-            <Form.Item
-              label="Konto Nummer"
-              name="kontoNumber"
-              rules={[
-                {
-                  required: true,
-                  message: "Bitte geben Sie die Kontonummer ein!",
-                },
-              ]}
-            >
-              <Input />
-            </Form.Item>
-            <Form.Item
-              label="Zeitraum (Startdatum & Enddatum)"
-              name="dateRange"
-              rules={[
-                {
-                  required: true,
-                  message: "Bitte wählen Sie den Zeitraum aus!",
-                },
-              ]}
-            >
-              <DatePicker.RangePicker format="DD.MM.YYYY" />
-            </Form.Item>
-            <Form.Item
-              label="Zinssatz (%)"
-              name="zinssatz"
-              rules={[
-                {
-                  required: true,
-                  message: "Bitte geben Sie den Zinssatz ein!",
-                },
-              ]}
-            >
-              <InputNumber
-                style={{ width: "100%" }}
-                min={0}
-                step={0.01}
-                addonAfter="%"
-                decimalSeparator=","
-              />
-            </Form.Item>
-            <Form.Item
-              label="Nominal (€)"
-              name="nominal"
-              rules={[
-                {
-                  required: true,
-                  message: "Bitte geben Sie den Nominalbetrag ein!",
-                },
-              ]}
-            >
-              <InputNumber
-                style={{ width: "100%" }}
-                min={0}
-                step={1000}
-                addonAfter="€"
-                decimalSeparator=","
-              />
-            </Form.Item>
-            <Form.Item
-              label="Zinsmethode"
-              name="dayCountConvention"
-              initialValue="actual"
-            >
-              <Select>
-                <Select.Option value="actual">Tagegenau (365)</Select.Option>
-                <Select.Option value="30/360">Kaufmännisch (30/360)</Select.Option>
-              </Select>
-            </Form.Item>
-            <Button type="primary" htmlType="submit" block icon={<PlusOutlined />}>
-              Konto hinzufügen
-            </Button>
-          </Form>
+              <Form
+                form={form}
+                layout="vertical"
+                onFinish={handleAddKonto}
+                requiredMark
+              >
+                <Form.Item
+                  label="Bankname"
+                  name="bankName"
+                  rules={[
+                    {
+                      required: true,
+                      message: "Bitte geben Sie den Banknamen ein.",
+                    },
+                  ]}
+                >
+                  <Input
+                    autoComplete="organization"
+                    placeholder="z. B. Erste Bank"
+                    aria-label="Bankname"
+                  />
+                </Form.Item>
+                <Form.Item
+                  label="Kontonummer"
+                  name="kontoNumber"
+                  rules={[
+                    {
+                      required: true,
+                      message: "Bitte geben Sie die Kontonummer ein.",
+                    },
+                  ]}
+                >
+                  <Input
+                    autoComplete="off"
+                    placeholder="z. B. 123456789"
+                    aria-label="Kontonummer"
+                  />
+                </Form.Item>
+                <Form.Item
+                  label="Zeitraum (Startdatum & Enddatum)"
+                  name="dateRange"
+                  rules={[
+                    {
+                      required: true,
+                      message: "Bitte wählen Sie den Zeitraum aus.",
+                    },
+                  ]}
+                >
+                  <DatePicker.RangePicker
+                    format="DD.MM.YYYY"
+                    style={{ width: "100%" }}
+                  />
+                </Form.Item>
+                <Form.Item
+                  label="Zinssatz (%)"
+                  name="zinssatz"
+                  rules={[
+                    {
+                      required: true,
+                      message: "Bitte geben Sie den Zinssatz ein.",
+                    },
+                  ]}
+                >
+                  <InputNumber
+                    style={{ width: "100%" }}
+                    min={0}
+                    step={0.01}
+                    aria-label="Zinssatz in Prozent"
+                    addonAfter="%"
+                    decimalSeparator=","
+                  />
+                </Form.Item>
+                <Form.Item
+                  label="Nominal (€)"
+                  name="nominal"
+                  rules={[
+                    {
+                      required: true,
+                      message: "Bitte geben Sie den Nominalbetrag ein.",
+                    },
+                  ]}
+                >
+                  <InputNumber
+                    style={{ width: "100%" }}
+                    min={0}
+                    step={1000}
+                    aria-label="Nominalbetrag in Euro"
+                    addonAfter="€"
+                    decimalSeparator=","
+                  />
+                </Form.Item>
+                <Form.Item
+                  label="Zinsmethode"
+                  name="dayCountConvention"
+                  initialValue="actual"
+                >
+                  <Select aria-label="Zinsmethode">
+                    <Select.Option value="actual">
+                      Tagegenau (365)
+                    </Select.Option>
+                    <Select.Option value="30/360">
+                      Kaufmännisch (30/360)
+                    </Select.Option>
+                  </Select>
+                </Form.Item>
+                <Button
+                  type="primary"
+                  htmlType="submit"
+                  block
+                  icon={<PlusOutlined />}
+                >
+                  Konto hinzufügen
+                </Button>
+              </Form>
             </Card>
           </div>
         </Layout.Sider>
 
-        <Layout.Content className="app-content">
+        <Layout.Content
+          id="main-content"
+          className="app-content"
+          role="main"
+          tabIndex={-1}
+        >
           <div className="stat-grid">
             <Card className="stat-card">
-              <Statistic title="Banken" value={data ? data.length : 0} />
+              <Statistic title="Banken" value={data.length} />
             </Card>
             <Card className="stat-card">
               <Statistic
                 title="Gesamtnominal (€)"
-                value={data ? data.reduce((sum, e) => sum + e.nominal, 0) : 0}
+                value={data.reduce((sum, e) => sum + e.nominal, 0)}
                 precision={2}
               />
             </Card>
@@ -1056,361 +1132,367 @@ export function AppLayout({
             </Card>
           </div>
 
-          <Card className="control-card">
-            <Row align="middle" gutter={16}>
-            <Form
-              layout="horizontal"
-              style={{ display: "flex", alignItems: "center" }}
-            >
-              <Form.Item style={{ marginBottom: 0 }} label="Quartalszeitraum">
-                <DatePicker.RangePicker
-                  value={
-                    quartalsBeginn && quartalsEnde
-                      ? [quartalsBeginn, quartalsEnde]
-                      : undefined
-                  }
-                  onChange={handleQuartalsRangeChange}
-                  format="DD.MM.YYYY"
-                />
-              </Form.Item>
-            </Form>
-            <Typography.Text style={{ marginLeft: 10 }}>
-              Quartalszinsen:{" "}
-              {calculateQuarterlyTotalInterest().toLocaleString("de-DE")} €
-            </Typography.Text>
-          </Row>
-        </Card>
+          <Card className="control-card" title="Quartalsauswertung">
+            <div className="control-panel">
+              <Form layout="vertical" className="quarter-form">
+                <Form.Item label="Quartalszeitraum" className="quarter-range">
+                  <DatePicker.RangePicker
+                    value={
+                      quartalsBeginn && quartalsEnde
+                        ? [quartalsBeginn, quartalsEnde]
+                        : undefined
+                    }
+                    onChange={handleQuartalsRangeChange}
+                    format="DD.MM.YYYY"
+                    allowClear
+                    style={{ width: "100%" }}
+                  />
+                </Form.Item>
+              </Form>
+              <Statistic
+                title="Quartalszinsen"
+                value={calculateQuarterlyTotalInterest()}
+                precision={2}
+                suffix="€"
+              />
+            </div>
+          </Card>
 
-        <Card
-          className="table-card"
-          title={
-            <Space>
-              <TableOutlined />
-              <span>Anlagenübersicht</span>
-            </Space>
-          }
-        >
-          <div className="table-toolbar">
-            <Button
-              type="default"
-              icon={<PrinterOutlined />}
-              disabled={!data || !quartalsBeginn || !quartalsEnde}
-              onClick={handlePrint}
-            >
-              Tabelle drucken
-            </Button>
-            <Tooltip title="Eine Zeile wird rot markiert, wenn das Enddatum weniger als einen Monat in der Zukunft liegt. (bald abgelaufen)">
-              <span className="legend">
-                <span
-                  className="legend-swatch"
-                  style={{ backgroundColor: colorErrorBgHover }}
-                  aria-hidden="true"
-                />
-                <Typography.Text type="secondary">
-                  Bald abgelaufen
-                </Typography.Text>
-              </span>
-            </Tooltip>
-          </div>
-          <Table
-            className="table"
-            dataSource={data}
-            rowKey={(record, index) =>
-              `${record.bankName}-${record.kontoNumber}-${index}`
+          <Card
+            className="table-card"
+            title={
+              <Space>
+                <TableOutlined />
+                <span>Anlagenübersicht</span>
+              </Space>
             }
-            pagination={false}
-            size="middle"
-            bordered
-            sticky
-            scroll={{ x: "max-content", y: "calc(100vh - 470px)" }}
-            rowClassName={(record) => {
-              const now = dayjs();
-              return record.endDatum.isBefore(now.add(1, "month"))
-                ? "row-warning"
-                : "";
-            }}
-            summary={() => (
-              <Table.Summary fixed>
-                <Table.Summary.Row style={{ fontWeight: "bold" }}>
-                  <Table.Summary.Cell index={0}>Summe</Table.Summary.Cell>
-                  <Table.Summary.Cell index={1} />
-                  <Table.Summary.Cell index={2} />
-                  <Table.Summary.Cell index={3} />
-                  <Table.Summary.Cell index={4} />
-                  <Table.Summary.Cell index={5} />
-                  <Table.Summary.Cell index={6}>
-                    {data
-                      ? data
-                          .reduce((sum, entry) => sum + entry.nominal, 0)
-                          .toLocaleString("de-DE", {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                          })
-                      : "0,00"}
-                  </Table.Summary.Cell>
-                  <Table.Summary.Cell align="end" index={7}>
-                    {data
-                      ? data
-                          .reduce(
-                            (sum, entry) =>
-                              sum + calculateSingleInterest(entry),
-                            0
-                          )
-                          .toLocaleString("de-DE", {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                          })
-                      : "0,00"}
-                  </Table.Summary.Cell>
-                  <Table.Summary.Cell align="end" index={8}>
-                    {data && quartalsEnde
-                      ? data
-                          .reduce(
-                            (sum, entry) =>
-                              sum + calculateAccumulatedInterest(entry),
-                            0
-                          )
-                          .toLocaleString("de-DE", {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                          })
-                      : "0,00"}
-                  </Table.Summary.Cell>
-                  <Table.Summary.Cell align="end" index={9}>
-                    {data && quartalsBeginn && quartalsEnde
-                      ? data
-                          .reduce(
-                            (sum, entry) =>
-                              sum + calculateQuarterlySingleInterest(entry),
-                            0
-                          )
-                          .toLocaleString("de-DE", {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                          })
-                      : "0,00"}
-                  </Table.Summary.Cell>
-                  <Table.Summary.Cell align="end" index={10}>
-                    {data
-                      ? data
-                          .reduce(
-                            (sum, entry) =>
-                              sum + (entry.verbuchteRueckstellung || 0),
-                            0
-                          )
-                          .toLocaleString("de-DE", {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                          })
-                      : "0,00"}
-                  </Table.Summary.Cell>
-                  <Table.Summary.Cell align="end" index={11}>
-                    {data
-                      ? data
-                          .reduce(
-                            (sum, entry) =>
-                              sum +
-                              calculateQuarterlySingleInterest(entry) -
-                              (entry.verbuchteRueckstellung || 0),
-                            0
-                          )
-                          .toLocaleString("de-DE", {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                          })
-                      : "0,00"}
-                  </Table.Summary.Cell>
-                  <Table.Summary.Cell index={12} />
-                </Table.Summary.Row>
-              </Table.Summary>
-            )}
           >
-            <Table.Column
-              title="Bank Name"
-              width={120}
-              dataIndex="bankName"
-              key="bankName"
-              fixed="left"
-            />
-            <Table.Column
-              title="Konto Nummer"
-              width={220}
-              dataIndex="kontoNumber"
-              key="kontoNumber"
-            />
-            <Table.Column
-              width={120}
-              title="Startdatum"
-              dataIndex="startDatum"
-              key="startdatum"
-              render={(date: Dayjs) => date.format("DD.MM.YYYY")}
-            />
-            <Table.Column
-              width={120}
-              title="Enddatum"
-              dataIndex="endDatum"
-              key="enddatum"
-              render={(date: Dayjs) => date.format("DD.MM.YYYY")}
-            />
-            <Table.Column
-              title="Zinssatz"
-              width={120}
-              dataIndex="zinssatz"
-              key="zinssatz"
-              align="right"
-              render={(value: number) =>
-                value.toLocaleString("de-DE", {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                }) + " %"
-              }
-            />
-            <Table.Column
-              title="Zinsmethode"
-              width={140}
-              key="dayCountConvention"
-              render={(_, record: KontoData, index: number) => (
-                <Select
-                  value={record.dayCountConvention || "actual"}
-                  style={{ width: 120 }}
-                  onChange={(value: DayCountConvention) => {
-                    if (!data) return;
-                    setData((prevData) => {
-                      if (!prevData) return prevData;
-                      const newData = [...prevData];
-                      newData[index] = {
-                        ...newData[index],
-                        dayCountConvention: value,
-                      };
-                      return newData;
-                    });
-                  }}
-                >
-                  <Select.Option value="actual">Tagegenau</Select.Option>
-                  <Select.Option value="30/360">30/360</Select.Option>
-                </Select>
-              )}
-            />
-            <Table.Column
-              title="Nominal (€)"
-              width={120}
-              dataIndex="nominal"
-              key="nominal"
-              render={(nominal: number) =>
-                nominal.toLocaleString("de-DE", {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })
-              }
-            />
-            <Table.Column
-              width={120}
-              align="right"
-              title="Zinsen gesamte Laufzeit (€)"
-              key="zinsen"
-              render={(_, record: KontoData) => {
-                const interest = calculateSingleInterest(record);
-                return interest.toLocaleString("de-DE", {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                });
-              }}
-            />
-            <Table.Column
-              width={150}
-              align="right"
-              title="Kommulierte Zinsen bis Stichtag"
-              key="kommulierteZinsen"
-              render={(_, record: KontoData) => {
-                const interest = calculateAccumulatedInterest(record);
-                return interest.toLocaleString("de-DE", {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                });
-              }}
-            />
-            <Table.Column
-              width={150}
-              align="right"
-              title="Zu buchende Quartalszinsen (€)"
-              key="quarterlyZinsen"
-              render={(_, record: KontoData) => {
-                const quarterlyInterest =
-                  calculateQuarterlySingleInterest(record);
-                return quarterlyInterest.toLocaleString("de-DE", {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                });
-              }}
-            />
-            <Table.Column
-              width={160}
-              align="right"
-              title="Bezahlte Zinsen (€)"
-              key="verbuchteRueckstellung"
-              render={(_, record: KontoData, index: number) => (
-                <InputNumber
-                  changeOnWheel
-                  value={record.verbuchteRueckstellung}
-                  min={0}
-                  decimalSeparator=","
-                  onChange={(value) => {
-                    if (!data) return;
-                    setData((prevData) => {
-                      if (!prevData) return prevData;
-                      const newData = [...prevData];
-                      newData[index] = {
-                        ...newData[index],
-                        verbuchteRueckstellung: value || 0,
-                      };
-                      return newData;
+            <div className="table-toolbar">
+              <Button
+                type="default"
+                icon={<PrinterOutlined />}
+                disabled={data.length === 0 || !quartalsBeginn || !quartalsEnde}
+                onClick={handlePrint}
+                aria-label="Anlagenübersicht für den gewählten Quartalszeitraum drucken"
+              >
+                Tabelle drucken
+              </Button>
+              <Tooltip title="Eine Zeile wird rot markiert, wenn das Enddatum weniger als einen Monat in der Zukunft liegt. (bald abgelaufen)">
+                <span className="legend">
+                  <span
+                    className="legend-swatch"
+                    style={{ backgroundColor: colorErrorBgHover }}
+                    aria-hidden="true"
+                  />
+                  <Typography.Text type="secondary">
+                    Bald abgelaufen
+                  </Typography.Text>
+                </span>
+              </Tooltip>
+            </div>
+            <div
+              className="table-region"
+              ref={tableRegionRef}
+              role="region"
+              aria-label="Anlagenübersicht"
+            >
+              <Table
+                className="table"
+                dataSource={data}
+                rowKey={(record, index) =>
+                  `${record.bankName}-${record.kontoNumber}-${index}`
+                }
+                pagination={false}
+                size="middle"
+                bordered
+                scroll={{ x: "max-content", y: tableScrollY }}
+                locale={{ emptyText: "Keine Anlagen erfasst" }}
+                rowClassName={(record) => {
+                  const now = dayjs();
+                  return record.endDatum.isBefore(now.add(1, "month"))
+                    ? "row-warning"
+                    : "";
+                }}
+                summary={() => (
+                  <Table.Summary fixed>
+                    <Table.Summary.Row style={{ fontWeight: "bold" }}>
+                      <Table.Summary.Cell index={0}>Summe</Table.Summary.Cell>
+                      <Table.Summary.Cell index={1} />
+                      <Table.Summary.Cell index={2} />
+                      <Table.Summary.Cell index={3} />
+                      <Table.Summary.Cell index={4} />
+                      <Table.Summary.Cell index={5} />
+                      <Table.Summary.Cell index={6}>
+                        {data
+                          ? data
+                              .reduce((sum, entry) => sum + entry.nominal, 0)
+                              .toLocaleString("de-DE", {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })
+                          : "0,00"}
+                      </Table.Summary.Cell>
+                      <Table.Summary.Cell align="end" index={7}>
+                        {data
+                          ? data
+                              .reduce(
+                                (sum, entry) =>
+                                  sum + calculateSingleInterest(entry),
+                                0,
+                              )
+                              .toLocaleString("de-DE", {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })
+                          : "0,00"}
+                      </Table.Summary.Cell>
+                      <Table.Summary.Cell align="end" index={8}>
+                        {quartalsEnde
+                          ? data
+                              .reduce(
+                                (sum, entry) =>
+                                  sum + calculateAccumulatedInterest(entry),
+                                0,
+                              )
+                              .toLocaleString("de-DE", {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })
+                          : "0,00"}
+                      </Table.Summary.Cell>
+                      <Table.Summary.Cell align="end" index={9}>
+                        {quartalsBeginn && quartalsEnde
+                          ? data
+                              .reduce(
+                                (sum, entry) =>
+                                  sum + calculateQuarterlySingleInterest(entry),
+                                0,
+                              )
+                              .toLocaleString("de-DE", {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })
+                          : "0,00"}
+                      </Table.Summary.Cell>
+                      <Table.Summary.Cell align="end" index={10}>
+                        {data
+                          ? data
+                              .reduce(
+                                (sum, entry) =>
+                                  sum + (entry.verbuchteRueckstellung || 0),
+                                0,
+                              )
+                              .toLocaleString("de-DE", {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })
+                          : "0,00"}
+                      </Table.Summary.Cell>
+                      <Table.Summary.Cell align="end" index={11}>
+                        {data
+                          ? data
+                              .reduce(
+                                (sum, entry) =>
+                                  sum +
+                                  calculateQuarterlySingleInterest(entry) -
+                                  (entry.verbuchteRueckstellung || 0),
+                                0,
+                              )
+                              .toLocaleString("de-DE", {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })
+                          : "0,00"}
+                      </Table.Summary.Cell>
+                      <Table.Summary.Cell index={12} />
+                    </Table.Summary.Row>
+                  </Table.Summary>
+                )}
+              >
+                <Table.Column
+                  title="Bankname"
+                  width={120}
+                  dataIndex="bankName"
+                  key="bankName"
+                  fixed="left"
+                />
+                <Table.Column
+                  title="Kontonummer"
+                  width={220}
+                  dataIndex="kontoNumber"
+                  key="kontoNumber"
+                />
+                <Table.Column
+                  width={120}
+                  title="Startdatum"
+                  dataIndex="startDatum"
+                  key="startdatum"
+                  render={(date: Dayjs) => date.format("DD.MM.YYYY")}
+                />
+                <Table.Column
+                  width={120}
+                  title="Enddatum"
+                  dataIndex="endDatum"
+                  key="enddatum"
+                  render={(date: Dayjs) => date.format("DD.MM.YYYY")}
+                />
+                <Table.Column
+                  title="Zinssatz"
+                  width={120}
+                  dataIndex="zinssatz"
+                  key="zinssatz"
+                  align="right"
+                  render={(value: number) =>
+                    value.toLocaleString("de-DE", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    }) + " %"
+                  }
+                />
+                <Table.Column
+                  title="Zinsmethode"
+                  width={140}
+                  key="dayCountConvention"
+                  render={(_, record: KontoData, index: number) => (
+                    <Select
+                      value={record.dayCountConvention || "actual"}
+                      style={{ width: 120 }}
+                      aria-label={`Zinsmethode für ${record.bankName} ${record.kontoNumber}`}
+                      onChange={(value: DayCountConvention) => {
+                        setData((prevData) => {
+                          const newData = [...prevData];
+                          newData[index] = {
+                            ...newData[index],
+                            dayCountConvention: value,
+                          };
+                          return newData;
+                        });
+                      }}
+                    >
+                      <Select.Option value="actual">Tagegenau</Select.Option>
+                      <Select.Option value="30/360">30/360</Select.Option>
+                    </Select>
+                  )}
+                />
+                <Table.Column
+                  title="Nominal (€)"
+                  width={120}
+                  dataIndex="nominal"
+                  key="nominal"
+                  align="right"
+                  render={(nominal: number) =>
+                    nominal.toLocaleString("de-DE", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })
+                  }
+                />
+                <Table.Column
+                  width={120}
+                  align="right"
+                  title="Zinsen gesamte Laufzeit (€)"
+                  key="zinsen"
+                  render={(_, record: KontoData) => {
+                    const interest = calculateSingleInterest(record);
+                    return interest.toLocaleString("de-DE", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
                     });
                   }}
                 />
-              )}
-            />
-            <Table.Column
-              width={150}
-              align="right"
-              title="Zinsabgrenzung (KTO 2301) (€)"
-              key="kommulierteSumme"
-              render={(_, record: KontoData) => {
-                const kommulierte = calculateAccumulatedInterest(record);
-                const verbuchte = record.verbuchteRueckstellung || 0;
-                const result = kommulierte - verbuchte;
-                return result.toLocaleString("de-DE", {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                });
-              }}
-            />
-            <Table.Column
-              width={80}
-              title="Aktionen"
-              align="center"
-              key="aktionen"
-              fixed="right"
-              render={(_, __, index: number) => (
-                <Popconfirm
-                  title="Sind Sie sicher, dass Sie dieses Konto löschen möchten?"
-                  onConfirm={() => handleDeleteKonto(index)}
-                  okText="Ja"
-                  cancelText="Nein"
-                >
-                  <Button danger icon={<DeleteOutlined />} aria-label="Konto löschen" />
-                </Popconfirm>
-              )}
-            />
-          </Table>
-        </Card>
+                <Table.Column
+                  width={150}
+                  align="right"
+                  title="Kumulierte Zinsen bis Stichtag"
+                  key="kommulierteZinsen"
+                  render={(_, record: KontoData) => {
+                    const interest = calculateAccumulatedInterest(record);
+                    return interest.toLocaleString("de-DE", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    });
+                  }}
+                />
+                <Table.Column
+                  width={150}
+                  align="right"
+                  title="Zu buchende Quartalszinsen (€)"
+                  key="quarterlyZinsen"
+                  render={(_, record: KontoData) => {
+                    const quarterlyInterest =
+                      calculateQuarterlySingleInterest(record);
+                    return quarterlyInterest.toLocaleString("de-DE", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    });
+                  }}
+                />
+                <Table.Column
+                  width={160}
+                  align="right"
+                  title="Bezahlte Zinsen (€)"
+                  key="verbuchteRueckstellung"
+                  render={(_, record: KontoData, index: number) => (
+                    <InputNumber
+                      changeOnWheel
+                      value={record.verbuchteRueckstellung}
+                      min={0}
+                      aria-label={`Bezahlte Zinsen für ${record.bankName} ${record.kontoNumber}`}
+                      decimalSeparator=","
+                      onChange={(value) => {
+                        setData((prevData) => {
+                          const newData = [...prevData];
+                          newData[index] = {
+                            ...newData[index],
+                            verbuchteRueckstellung: value || 0,
+                          };
+                          return newData;
+                        });
+                      }}
+                    />
+                  )}
+                />
+                <Table.Column
+                  width={150}
+                  align="right"
+                  title="Zinsabgrenzung (KTO 2301) (€)"
+                  key="kommulierteSumme"
+                  render={(_, record: KontoData) => {
+                    const kommulierte = calculateAccumulatedInterest(record);
+                    const verbuchte = record.verbuchteRueckstellung || 0;
+                    const result = kommulierte - verbuchte;
+                    return result.toLocaleString("de-DE", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    });
+                  }}
+                />
+                <Table.Column
+                  width={80}
+                  title="Aktionen"
+                  align="center"
+                  key="aktionen"
+                  fixed="right"
+                  render={(_, __, index: number) => (
+                    <Popconfirm
+                      title="Sind Sie sicher, dass Sie dieses Konto löschen möchten?"
+                      onConfirm={() => handleDeleteKonto(index)}
+                      okText="Ja"
+                      cancelText="Nein"
+                    >
+                      <Button
+                        danger
+                        icon={<DeleteOutlined />}
+                        aria-label="Konto löschen"
+                      />
+                    </Popconfirm>
+                  )}
+                />
+              </Table>
+            </div>
+          </Card>
         </Layout.Content>
       </Layout>
-
-      
-
-      <Typography.Text className="version-text">
-        Version {packageJson.version}
-      </Typography.Text>
 
       <Modal
         title="Chronologische Historie aller Banken"
@@ -1433,7 +1515,11 @@ export function AppLayout({
           >
             Als Excel
           </Button>,
-          <Button key="close" type="primary" onClick={() => setHistoryPreviewOpen(false)}>
+          <Button
+            key="close"
+            type="primary"
+            onClick={() => setHistoryPreviewOpen(false)}
+          >
             Schließen
           </Button>,
         ]}
