@@ -32,12 +32,21 @@ html[data-theme="dark"] body {
   flex: 0 0 auto;
   gap: 16px;
   min-width: 0;
-  border-bottom: 1px solid
+  border-bottom: 2px solid
     var(--ant-color-border-secondary, rgba(5, 5, 5, 0.06));
   z-index: 20;
   padding-inline: 20px !important;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
   background-color: var(--ant-color-bg-container, #ffffff) !important;
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+.app-header button,
+.app-header .ant-btn,
+.app-header .ant-dropdown-trigger {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
 }
 
 .app-header-brand {
@@ -79,6 +88,7 @@ html[data-theme="dark"] body {
   align-items: center;
   flex: 0 0 auto;
   gap: 2px;
+  padding-right: 140px;
 }
 
 .app-body {
@@ -110,9 +120,19 @@ html[data-theme="dark"] body {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  gap: 16px;
-  padding: 20px 24px 24px;
-  overflow: auto;
+  gap: 12px;
+  padding: 16px 24px 24px;
+  overflow: hidden;
+}
+
+.app-content > .table-card {
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.app-content > .stat-grid,
+.app-content > .control-card {
+  flex-shrink: 0;
 }
 
 .app-content:focus {
@@ -121,9 +141,11 @@ html[data-theme="dark"] body {
 
 .stat-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
 }
+
+
 
 .stat-card,
 .form-card,
@@ -158,16 +180,18 @@ html[data-theme="dark"] body {
 
 .table-card {
   display: flex;
-  flex: 1 1 auto;
+  flex: 1 1 0;
   flex-direction: column;
-  min-height: 420px;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .table-card .ant-card-body {
   display: flex;
-  flex: 1 1 auto;
+  flex: 1 1 0;
   flex-direction: column;
   min-height: 0;
+  overflow: hidden;
 }
 
 .table-toolbar {
@@ -195,8 +219,11 @@ html[data-theme="dark"] body {
 }
 
 .table-region {
-  flex: 1 1 auto;
-  min-height: 260px;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .table-region .ant-table-wrapper,
@@ -204,6 +231,8 @@ html[data-theme="dark"] body {
 .table-region .ant-spin-container,
 .table-region .ant-table,
 .table-region .ant-table-container {
+  flex: 1 1 0;
+  min-height: 0;
   height: 100%;
 }
 
@@ -214,10 +243,24 @@ html[data-theme="dark"] body {
 }
 
 .table .ant-table-thead > tr > th {
-  background-color: var(--ant-color-fill-quaternary) !important;
+  background: var(--ant-color-fill-quaternary) !important;
   font-weight: 600;
   line-height: 1.25;
   white-space: normal;
+}
+
+.table .ant-table-thead > tr > th.ant-table-cell-fix-left,
+.table .ant-table-thead > tr > th.ant-table-cell-fix-right,
+.table .ant-table-thead .ant-table-cell-fix-left,
+.table .ant-table-thead .ant-table-cell-fix-right {
+  background: #fafafa !important;
+}
+
+html[data-theme="dark"] .table .ant-table-thead > tr > th.ant-table-cell-fix-left,
+html[data-theme="dark"] .table .ant-table-thead > tr > th.ant-table-cell-fix-right,
+html[data-theme="dark"] .table .ant-table-thead .ant-table-cell-fix-left,
+html[data-theme="dark"] .table .ant-table-thead .ant-table-cell-fix-right {
+  background: #1d1d1d !important;
 }
 
 .table .ant-table-tbody > tr:nth-child(even):not(.row-warning) > td {
@@ -310,8 +353,14 @@ html[data-theme="dark"] body {
     overflow: visible;
   }
 
+  .app-content {
+    flex: 1 1 auto;
+    min-height: auto;
+  }
+
   .table-card {
     min-height: 520px;
+    flex: none;
   }
 }
 

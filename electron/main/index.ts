@@ -107,8 +107,11 @@ function saveWindowStateDebounced() {
 async function createWindow() {
   const state = loadWindowState();
 
+  const isWindows = process.platform === "win32";
+  const isMac = process.platform === "darwin";
+
   const browserWindowOptions: Electron.BrowserWindowConstructorOptions = {
-    title: "Main window",
+    title: "Zinsrechner",
     autoHideMenuBar: true,
     width: state.width,
     height: state.height,
@@ -116,6 +119,17 @@ async function createWindow() {
     webPreferences: {
       preload,
     },
+    titleBarStyle: isMac ? "hiddenInset" : "hidden",
+    ...(isMac ? {} : { frame: false }),
+    ...(isWindows
+      ? {
+          titleBarOverlay: {
+            height: 58,
+            color: "#ffffff",
+            symbolColor: "#333333",
+          },
+        }
+      : {}),
   };
   // Only restore position when it is a sane value (within a screen).
   if (
@@ -205,6 +219,15 @@ app.on("activate", () => {
     allWindows[0].focus();
   } else {
     createWindow();
+  }
+});
+
+ipcMain.on("update-titlebar-overlay", (_event, isDark: boolean) => {
+  if (win && process.platform === "win32") {
+    win.setTitleBarOverlay({
+      color: isDark ? "#141414" : "#ffffff",
+      symbolColor: isDark ? "#f2f2f2" : "#333333",
+    });
   }
 });
 

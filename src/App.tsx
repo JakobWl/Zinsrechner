@@ -7,30 +7,41 @@ import { AppLayout } from "./AppLayout";
 
 dayjs.locale("de");
 
-function App() {
-  const [darkMode, setDarkMode] = useState(
-    () => window.matchMedia("(prefers-color-scheme: dark)").matches,
-  );
+type ThemeMode = "system" | "light" | "dark";
 
-  const toggleDarkMode = useCallback(() => {
-    setDarkMode((prev) => !prev);
+function getSystemDark() {
+  return window.matchMedia("(prefers-color-scheme: dark)").matches;
+}
+
+function App() {
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
+    const stored = localStorage.getItem("themeMode");
+    if (stored === "light" || stored === "dark" || stored === "system") return stored;
+    return "system";
+  });
+
+  const darkMode = themeMode === "dark" || (themeMode === "system" && getSystemDark());
+  const [, forceUpdate] = useState(0);
+
+  const handleThemeModeChange = useCallback((mode: ThemeMode) => {
+    setThemeMode(mode);
+    localStorage.setItem("themeMode", mode);
   }, []);
 
   useEffect(() => {
+    if (themeMode !== "system") return;
     const windowQuery = window.matchMedia("(prefers-color-scheme: dark)");
-    const darkModeChange = (event: MediaQueryListEvent) => {
-      setDarkMode(event.matches);
-    };
-
-    windowQuery.addEventListener("change", darkModeChange);
-    return () => {
-      windowQuery.removeEventListener("change", darkModeChange);
-    };
-  }, []);
+    const onChange = () => forceUpdate((n) => n + 1);
+    windowQuery.addEventListener("change", onChange);
+    return () => windowQuery.removeEventListener("change", onChange);
+  }, [themeMode]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = darkMode ? "dark" : "light";
     document.documentElement.style.colorScheme = darkMode ? "dark" : "light";
+    if (window.ipcRenderer) {
+      window.ipcRenderer.send("update-titlebar-overlay", darkMode);
+    }
   }, [darkMode]);
 
   return (
@@ -66,7 +77,7 @@ function App() {
       }}
     >
       <AntApp>
-        <AppLayout isDarkMode={darkMode} onToggleDarkMode={toggleDarkMode} />
+        <AppLayout isDarkMode={darkMode} themeMode={themeMode} onThemeModeChange={handleThemeModeChange} />
       </AntApp>
     </ConfigProvider>
   );

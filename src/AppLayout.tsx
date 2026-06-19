@@ -31,6 +31,7 @@ import {
   FileExcelOutlined,
   FilePdfOutlined,
   HistoryOutlined,
+  LaptopOutlined,
   MoonOutlined,
   PlusOutlined,
   PrinterOutlined,
@@ -77,6 +78,7 @@ interface HistoryRow {
   bankName: string;
   menge: number;
   prozent: number;
+  wachstum: number | null; // difference to previous rate at same bank
   ereignis: string; // e.g. "Eröffnung" / "Ablauf"
   aenderung: "up" | "down" | "none";
 }
@@ -84,8 +86,10 @@ interface HistoryRow {
 /**
  * Build a chronologically sorted list of all events across all banks.
  * For every account we emit two events: "Eröffnung" at startDatum and
- * "Ablauf" at endDatum. The percentage change is computed per bank against
- * the previous event (increase = green/up, decrease = red/down).
+ * "Ablauf" at endDatum. The percentage change (up/down) is shown on
+ * "Eröffnung" events and compares the new account's rate against the
+ * previous account's rate at the same bank (i.e. from the last "Ablauf"
+ * to the new "Eröffnung").
  */
 function buildHistoryRows(data: KontoData[] | undefined): HistoryRow[] {
   if (!data || data.length === 0) return [];
@@ -122,21 +126,28 @@ function buildHistoryRows(data: KontoData[] | undefined): HistoryRow[] {
     return a.bankName.localeCompare(b.bankName);
   });
 
-  // Track the last known percent per bank to compute up/down change.
+  // Track the last known percent per bank to compute up/down on new accounts.
   const lastPercentByBank = new Map<string, number>();
   return events.map((e) => {
-    const prev = lastPercentByBank.get(e.bankName);
     let aenderung: HistoryRow["aenderung"] = "none";
-    if (prev !== undefined) {
-      if (e.prozent > prev) aenderung = "up";
-      else if (e.prozent < prev) aenderung = "down";
+    let wachstum: number | null = null;
+    if (e.ereignis === "Eröffnung") {
+      const prev = lastPercentByBank.get(e.bankName);
+      if (prev !== undefined) {
+        wachstum = e.prozent - prev;
+        if (e.prozent > prev) aenderung = "up";
+        else if (e.prozent < prev) aenderung = "down";
+      }
     }
-    lastPercentByBank.set(e.bankName, e.prozent);
+    if (e.ereignis === "Ablauf") {
+      lastPercentByBank.set(e.bankName, e.prozent);
+    }
     return {
       datum: e.datum.format("DD.MM.YYYY"),
       bankName: e.bankName,
       menge: e.menge,
       prozent: e.prozent,
+      wachstum,
       ereignis: e.ereignis,
       aenderung,
     };
@@ -144,10 +155,12 @@ function buildHistoryRows(data: KontoData[] | undefined): HistoryRow[] {
 }
 
 export function AppLayout({
-  onToggleDarkMode,
+  onThemeModeChange,
+  themeMode,
   isDarkMode,
 }: {
-  onToggleDarkMode?: () => void;
+  onThemeModeChange?: (mode: "system" | "light" | "dark") => void;
+  themeMode?: "system" | "light" | "dark";
   isDarkMode?: boolean;
 }) {
   const {
@@ -156,8 +169,8 @@ export function AppLayout({
   const [data, setData] = useState<KontoData[]>([]);
   const [quartalsBeginn, setQuartalsBeginn] = useState<Dayjs | null>(null);
   const [quartalsEnde, setQuartalsEnde] = useState<Dayjs | null>(null);
-  const [tableScrollY, setTableScrollY] = useState(320);
   const hasLoadedData = useRef(false);
+  const [tableScrollY, setTableScrollY] = useState(300);
   const tableRegionRef = useRef<HTMLDivElement>(null);
   const [form] = Form.useForm<KontoFormValues>();
 
@@ -215,21 +228,21 @@ export function AppLayout({
   }, [data]);
 
   useEffect(() => {
-    const tableRegion = tableRegionRef.current;
-    if (!tableRegion) return;
-
-    const updateTableHeight = () => {
-      setTableScrollY(Math.max(240, tableRegion.clientHeight - 96));
+    const compute = () => {
+      const el = tableRegionRef.current;
+      if (!el) return;
+      const top = el.getBoundingClientRect().top;
+      // viewport minus top offset, minus card padding (24), toolbar (~44), thead (~40), summary row (~46)
+      const y = window.innerHeight - top - 154;
+      setTableScrollY(Math.max(150, y));
     };
-
-    updateTableHeight();
-    const observer = new ResizeObserver(updateTableHeight);
-    observer.observe(tableRegion);
-    window.addEventListener("resize", updateTableHeight);
-
+    compute();
+    window.addEventListener("resize", compute);
+    const ro = new ResizeObserver(compute);
+    if (tableRegionRef.current) ro.observe(tableRegionRef.current);
     return () => {
-      observer.disconnect();
-      window.removeEventListener("resize", updateTableHeight);
+      window.removeEventListener("resize", compute);
+      ro.disconnect();
     };
   }, []);
 
@@ -936,28 +949,40 @@ export function AppLayout({
         </Space>
         <div className="app-header-actions">
           <Dropdown menu={{ items: historyMenuItems }} placement="bottomRight">
-            <Tooltip title="Chronologische Historie aller Banken">
-              <Button
-                type="text"
-                aria-label="Chronologische Historie aller Banken öffnen"
-                icon={<HistoryOutlined />}
-              >
-                Historie
-              </Button>
-            </Tooltip>
-          </Dropdown>
-          <Tooltip title="Theme wechseln">
             <Button
               type="text"
-              aria-label={
-                isDarkMode
-                  ? "Helles Theme aktivieren"
-                  : "Dunkles Theme aktivieren"
-              }
-              icon={isDarkMode ? <SunOutlined /> : <MoonOutlined />}
-              onClick={onToggleDarkMode}
-            />
-          </Tooltip>
+              aria-label="Chronologische Historie aller Banken öffnen"
+              icon={<HistoryOutlined />}
+            >
+              Historie
+            </Button>
+          </Dropdown>
+          <Space.Compact size="small">
+              <Tooltip title="Hell">
+                <Button
+                  type={themeMode === "light" ? "primary" : "text"}
+                  icon={<SunOutlined />}
+                  onClick={() => onThemeModeChange?.("light")}
+                  aria-label="Helles Theme"
+                />
+              </Tooltip>
+              <Tooltip title="System">
+                <Button
+                  type={themeMode === "system" ? "primary" : "text"}
+                  icon={<LaptopOutlined />}
+                  onClick={() => onThemeModeChange?.("system")}
+                  aria-label="System Theme"
+                />
+              </Tooltip>
+              <Tooltip title="Dunkel">
+                <Button
+                  type={themeMode === "dark" ? "primary" : "text"}
+                  icon={<MoonOutlined />}
+                  onClick={() => onThemeModeChange?.("dark")}
+                  aria-label="Dunkles Theme"
+                />
+              </Tooltip>
+            </Space.Compact>
         </div>
       </Layout.Header>
 
@@ -1106,24 +1131,24 @@ export function AppLayout({
           tabIndex={-1}
         >
           <div className="stat-grid">
-            <Card className="stat-card">
+            <Card className="stat-card" size="small">
               <Statistic title="Banken" value={data.length} />
             </Card>
-            <Card className="stat-card">
+            <Card className="stat-card" size="small">
               <Statistic
                 title="Gesamtnominal (€)"
                 value={data.reduce((sum, e) => sum + e.nominal, 0)}
                 precision={2}
               />
             </Card>
-            <Card className="stat-card">
+            <Card className="stat-card" size="small">
               <Statistic
                 title="Gesamtzinsen (€)"
                 value={calculateTotalInterest()}
                 precision={2}
               />
             </Card>
-            <Card className="stat-card">
+            <Card className="stat-card" size="small">
               <Statistic
                 title="Quartalszinsen (€)"
                 value={calculateQuarterlyTotalInterest()}
@@ -1132,7 +1157,7 @@ export function AppLayout({
             </Card>
           </div>
 
-          <Card className="control-card" title="Quartalsauswertung">
+          <Card className="control-card" size="small" title="Quartalsauswertung">
             <div className="control-panel">
               <Form layout="vertical" className="quarter-form">
                 <Form.Item label="Quartalszeitraum" className="quarter-range">
@@ -1557,33 +1582,19 @@ export function AppLayout({
                 }),
             },
             {
-              title: "Prozent",
+              title: "Zinssatz",
               dataIndex: "prozent",
               key: "prozent",
               align: "right",
-              render: (prozent: number, record: HistoryRow) => {
-                const color =
-                  record.aenderung === "up"
-                    ? "#008000"
-                    : record.aenderung === "down"
-                      ? "#cc0000"
-                      : "inherit";
-                const arrow =
-                  record.aenderung === "up" ? (
-                    <ArrowUpOutlined style={{ marginLeft: 4 }} />
-                  ) : record.aenderung === "down" ? (
-                    <ArrowDownOutlined style={{ marginLeft: 4 }} />
-                  ) : null;
-                return (
-                  <span style={{ color, fontWeight: "bold" }}>
-                    {prozent.toLocaleString("de-DE", {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}
-                    %{arrow}
-                  </span>
-                );
-              },
+              render: (prozent: number) => (
+                <span>
+                  {prozent.toLocaleString("de-DE", {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}
+                  %
+                </span>
+              ),
             },
             {
               title: "Ereignis",
