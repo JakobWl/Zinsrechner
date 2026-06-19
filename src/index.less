@@ -284,6 +284,36 @@ html[data-theme="dark"] .table .ant-table-thead .ant-table-cell-fix-right {
   background-color: var(--ant-color-error-bg-hover) !important;
 }
 
+.table .ant-table-tbody > tr > td.ant-table-cell-fix-left,
+.table .ant-table-tbody > tr > td.ant-table-cell-fix-right {
+  background: #ffffff !important;
+}
+
+.table .ant-table-tbody > tr:nth-child(even):not(.row-warning) > td.ant-table-cell-fix-left,
+.table .ant-table-tbody > tr:nth-child(even):not(.row-warning) > td.ant-table-cell-fix-right {
+  background: #f8f8f8 !important;
+}
+
+.table .ant-table-tbody > tr.row-warning > td.ant-table-cell-fix-left,
+.table .ant-table-tbody > tr.row-warning > td.ant-table-cell-fix-right {
+  background: var(--ant-color-error-bg-hover) !important;
+}
+
+html[data-theme="dark"] .table .ant-table-tbody > tr > td.ant-table-cell-fix-left,
+html[data-theme="dark"] .table .ant-table-tbody > tr > td.ant-table-cell-fix-right {
+  background: #141414 !important;
+}
+
+html[data-theme="dark"] .table .ant-table-tbody > tr:nth-child(even):not(.row-warning) > td.ant-table-cell-fix-left,
+html[data-theme="dark"] .table .ant-table-tbody > tr:nth-child(even):not(.row-warning) > td.ant-table-cell-fix-right {
+  background: #1a1a1a !important;
+}
+
+html[data-theme="dark"] .table .ant-table-tbody > tr.row-warning > td.ant-table-cell-fix-left,
+html[data-theme="dark"] .table .ant-table-tbody > tr.row-warning > td.ant-table-cell-fix-right {
+  background: var(--ant-color-error-bg-hover) !important;
+}
+
 *:focus-visible {
   outline: 2px solid var(--ant-color-primary, #1668dc);
   outline-offset: 2px;
@@ -318,14 +348,19 @@ html[data-theme="dark"] .table .ant-table-thead .ant-table-cell-fix-right {
 
 @media (max-width: 1080px) {
   .layout {
-    height: auto;
-    overflow: auto;
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
   }
 
   .app-header {
+    position: sticky;
+    top: 0;
     height: auto;
     min-height: 60px;
     padding-block: 8px;
+    flex-shrink: 0;
   }
 
   .app-header-subtitle {
@@ -333,34 +368,87 @@ html[data-theme="dark"] .table .ant-table-thead .ant-table-cell-fix-right {
   }
 
   .app-body {
-    flex-direction: column;
-    min-height: auto;
-    overflow: visible;
+    flex: 1 1 0;
+    min-height: 0;
+    flex-direction: column !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
   }
 
-  .app-sider {
-    width: 100% !important;
-    max-width: none !important;
-    flex: 0 0 auto !important;
-    border-inline-end: 0;
+  .app-body-narrow {
+    flex-direction: column !important;
+    display: flex !important;
+  }
+
+  .app-body-narrow > .app-sider {
+    width: 100%;
+    flex: 0 0 auto;
     border-bottom: 1px solid
       var(--ant-color-border-secondary, rgba(5, 5, 5, 0.06));
+    padding: 16px;
   }
 
-  .app-sider > .ant-layout-sider-children,
-  .app-content {
-    height: auto;
-    overflow: visible;
+  .ant-layout.ant-layout-has-sider.app-body {
+    flex-direction: column !important;
+  }
+
+  .ant-layout-sider.app-sider {
+    flex: 0 0 auto !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    width: 100% !important;
+  }
+
+  .app-sider > .ant-layout-sider-children {
+    height: auto !important;
+    overflow: visible !important;
   }
 
   .app-content {
-    flex: 1 1 auto;
-    min-height: auto;
+    flex: 0 0 auto !important;
+    height: auto !important;
+    min-height: auto !important;
+    overflow: visible !important;
+    max-width: 100%;
+    width: 100%;
+  }
+
+  .stat-grid {
+    grid-template-columns: repeat(2, 1fr);
   }
 
   .table-card {
-    min-height: 520px;
-    flex: none;
+    flex: none !important;
+    overflow: hidden !important;
+    max-width: 100%;
+  }
+
+  .table-card .ant-card-body {
+    overflow: hidden !important;
+    max-width: 100%;
+    height: auto !important;
+    flex: none !important;
+  }
+
+  .table-region {
+    overflow: auto !important;
+    max-width: 100%;
+    height: auto !important;
+    flex: none !important;
+  }
+
+  .table-region .ant-table-wrapper,
+  .table-region .ant-spin-nested-loading,
+  .table-region .ant-spin-container,
+  .table-region .ant-table,
+  .table-region .ant-table-container {
+    flex: none !important;
+    height: auto !important;
+  }
+
+  .table-region .ant-table-body {
+    max-height: none !important;
+    overflow-y: visible !important;
   }
 }
 
