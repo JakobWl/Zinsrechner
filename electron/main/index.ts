@@ -255,6 +255,28 @@ ipcMain.on("save-data", (event, data) => {
   }
 });
 
+ipcMain.handle("load-history-groups", async () => {
+  try {
+    const userDataPath = app.getPath("userData");
+    const filePath = path.join(userDataPath, "history-groups.json");
+    if (!fs.existsSync(filePath)) return "[]";
+    return fs.readFileSync(filePath, "utf8");
+  } catch (error) {
+    console.error("Error loading history groups:", error);
+    return "[]";
+  }
+});
+
+ipcMain.on("save-history-groups", (_, data) => {
+  try {
+    const userDataPath = app.getPath("userData");
+    const filePath = path.join(userDataPath, "history-groups.json");
+    fs.writeFileSync(filePath, data, "utf8");
+  } catch (error) {
+    console.error("Error saving history groups:", error);
+  }
+});
+
 ipcMain.on("create-print-window", (event, data) => {
   let printWindow = new BrowserWindow({
     width: 1000,
@@ -305,6 +327,11 @@ ipcMain.on("create-print-window", (event, data) => {
 // either a PDF (via a hidden BrowserWindow + printToPDF) or an Excel-compatible
 // SpreadsheetML 2003 XML file. Percentage changes are shown in green (increase)
 // or red (decrease).
+interface HistoryGroup {
+  name: string;
+  banks: string[];
+}
+
 interface HistoryRow {
   datum: string; // DD.MM.YYYY
   bankName: string;
@@ -323,34 +350,45 @@ function escapeXml(unsafe: string): string {
     .replace(/'/g, "&apos;");
 }
 
-function buildHistoryHtml(rows: HistoryRow[]): string {
+function buildHistoryHtml(rows: HistoryRow[], groups: HistoryGroup[]): string {
+  const hasGroups = groups.length > 0;
+  const veranlagungCols = hasGroups
+    ? groups.map((g) => g.name)
+    : ["Betrag"];
+
   const body = rows
     .map((r) => {
-      const color =
-        r.aenderung === "up"
-          ? "#008000"
-          : r.aenderung === "down"
-            ? "#cc0000"
-            : "#333333";
-      const arrow =
-        r.aenderung === "up" ? " ▲" : r.aenderung === "down" ? " ▼" : "";
-      const prozentText = `${r.prozent.toLocaleString("de-DE", {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      })}%${arrow}`;
       const mengeText = r.menge.toLocaleString("de-DE", {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       });
+
+      const groupCells = hasGroups
+        ? groups
+            .map((g) => {
+              const val =
+                r.ereignis === "Eröffnung" && g.banks.includes(r.bankName)
+                  ? mengeText
+                  : "";
+              return `<td style="text-align:right">${val}</td>`;
+            })
+            .join("")
+        : `<td style="text-align:right">${r.ereignis === "Eröffnung" ? mengeText : ""}</td>`;
+
+      const ablaufCell = `<td style="text-align:right;background:#f5f5f5">${r.ereignis === "Ablauf" ? mengeText : ""}</td>`;
+
       return `<tr>
           <td>${r.datum}</td>
           <td>${escapeXml(r.bankName)}</td>
-          <td style="text-align:right">${mengeText}</td>
-          <td style="text-align:right;color:${color};font-weight:bold">${prozentText}</td>
-          <td>${escapeXml(r.ereignis)}</td>
+          ${groupCells}
+          ${ablaufCell}
         </tr>`;
     })
     .join("");
+
+  const colCount = 2 + veranlagungCols.length + 1;
+  const colWidth = Math.floor(56 / (veranlagungCols.length + 1));
+
   const generated = new Date().toLocaleString("de-AT");
   return `<!DOCTYPE html>
 <html lang="de">
@@ -366,6 +404,7 @@ function buildHistoryHtml(rows: HistoryRow[]): string {
   th { background-color: #f2f2f2; padding: 10px; text-align: left; }
   td { padding: 8px 10px; }
   tr:nth-child(even) { background-color: #f9f9f9; }
+  .group-header { text-align: center; font-weight: bold; }
 </style>
 </head>
 <body>
@@ -374,11 +413,13 @@ function buildHistoryHtml(rows: HistoryRow[]): string {
   <table>
     <thead>
       <tr>
-        <th style="width:14%">Datum</th>
-        <th style="width:30%">Bankname</th>
-        <th style="width:20%; text-align:right">Menge (€)</th>
-        <th style="width:20%; text-align:right">Prozent</th>
-        <th style="width:16%">Ereignis</th>
+        <th rowspan="2" style="width:12%">Datum</th>
+        <th rowspan="2" style="width:30%">Bankname</th>
+        <th colspan="${veranlagungCols.length + 1}" class="group-header" style="text-align:center">Veranlagung (€)</th>
+      </tr>
+      <tr>
+        ${veranlagungCols.map((c) => `<th style="width:${colWidth}%; text-align:right">${escapeXml(c)}</th>`).join("")}
+        <th style="width:${colWidth}%; text-align:right; background:#f5f5f5">Ablauf</th>
       </tr>
     </thead>
     <tbody>
@@ -389,46 +430,56 @@ function buildHistoryHtml(rows: HistoryRow[]): string {
 </html>`;
 }
 
-function buildHistoryExcelXml(rows: HistoryRow[]): string {
-  // SpreadsheetML 2003 XML — opens natively in Microsoft Excel and supports
-  // per-cell font colors (green for increase, red for decrease).
-  const headerStyle =
-    ' ss:StyleID="headerRow"';
+function buildHistoryExcelXml(rows: HistoryRow[], groups: HistoryGroup[]): string {
+  const hasGroups = groups.length > 0;
+  const veranlagungCols = hasGroups ? groups.map((g) => g.name) : ["Betrag"];
+  const headerStyle = ' ss:StyleID="headerRow"';
+
   const cells = rows
     .map((r) => {
-      const styleId =
-        r.aenderung === "up"
-          ? "up"
-          : r.aenderung === "down"
-            ? "down"
-            : "normal";
-      const prozentText = `${r.prozent.toLocaleString("de-DE", {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      })}%`;
       const mengeText = r.menge.toLocaleString("de-DE", {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       });
+
+      const groupCells = hasGroups
+        ? groups
+            .map((g) => {
+              const val =
+                r.ereignis === "Eröffnung" && g.banks.includes(r.bankName)
+                  ? mengeText
+                  : "";
+              return `<Cell ss:StyleID="normal"><Data ss:Type="String">${escapeXml(val)}</Data></Cell>`;
+            })
+            .join("\n        ")
+        : `<Cell ss:StyleID="normal"><Data ss:Type="String">${escapeXml(r.ereignis === "Eröffnung" ? mengeText : "")}</Data></Cell>`;
+
+      const ablaufVal = r.ereignis === "Ablauf" ? mengeText : "";
+
       return `<Row>
-        <Cell${headerStyle}><Data ss:Type="String">${escapeXml(
-          r.datum,
-        )}</Data></Cell>
-        <Cell${headerStyle}><Data ss:Type="String">${escapeXml(
-          r.bankName,
-        )}</Data></Cell>
-        <Cell ss:StyleID="${styleId}"><Data ss:Type="String">${escapeXml(
-          mengeText,
-        )}</Data></Cell>
-        <Cell ss:StyleID="${styleId}"><Data ss:Type="String">${escapeXml(
-          prozentText,
-        )}</Data></Cell>
-        <Cell${headerStyle}><Data ss:Type="String">${escapeXml(
-          r.ereignis,
-        )}</Data></Cell>
+        <Cell${headerStyle}><Data ss:Type="String">${escapeXml(r.datum)}</Data></Cell>
+        <Cell${headerStyle}><Data ss:Type="String">${escapeXml(r.bankName)}</Data></Cell>
+        ${groupCells}
+        <Cell ss:StyleID="ablauf"><Data ss:Type="String">${escapeXml(ablaufVal)}</Data></Cell>
       </Row>`;
     })
     .join("\n");
+
+  const columns = [
+    '<Column ss:Width="110"/>',
+    '<Column ss:Width="200"/>',
+    ...veranlagungCols.map(() => '<Column ss:Width="140"/>'),
+    '<Column ss:Width="140"/>',
+  ].join("\n   ");
+
+  const headerCells = [
+    `<Cell${headerStyle}><Data ss:Type="String">Datum</Data></Cell>`,
+    `<Cell${headerStyle}><Data ss:Type="String">Bankname</Data></Cell>`,
+    ...veranlagungCols.map(
+      (c) => `<Cell${headerStyle}><Data ss:Type="String">${escapeXml(c)}</Data></Cell>`,
+    ),
+    `<Cell${headerStyle}><Data ss:Type="String">Ablauf</Data></Cell>`,
+  ].join("\n    ");
 
   return `<?xml version="1.0"?>
 <?mso-application progid="Excel.Sheet"?>
@@ -452,28 +503,16 @@ function buildHistoryExcelXml(rows: HistoryRow[]): string {
   <Style ss:ID="normal">
    <Alignment ss:Horizontal="Right"/>
   </Style>
-  <Style ss:ID="up">
+  <Style ss:ID="ablauf">
    <Alignment ss:Horizontal="Right"/>
-   <Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1" ss:Color="#008000"/>
-  </Style>
-  <Style ss:ID="down">
-   <Alignment ss:Horizontal="Right"/>
-   <Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1" ss:Color="#CC0000"/>
+   <Interior ss:Color="#F5F5F5" ss:Pattern="Solid"/>
   </Style>
  </Styles>
  <Worksheet ss:Name="Historie">
   <Table>
-   <Column ss:Width="110"/>
-   <Column ss:Width="200"/>
-   <Column ss:Width="120"/>
-   <Column ss:Width="100"/>
-   <Column ss:Width="110"/>
+   ${columns}
    <Row>
-    <Cell${headerStyle}><Data ss:Type="String">Datum</Data></Cell>
-    <Cell${headerStyle}><Data ss:Type="String">Bankname</Data></Cell>
-    <Cell${headerStyle}><Data ss:Type="String">Menge (€)</Data></Cell>
-    <Cell${headerStyle}><Data ss:Type="String">Prozent</Data></Cell>
-    <Cell${headerStyle}><Data ss:Type="String">Ereignis</Data></Cell>
+    ${headerCells}
    </Row>
    ${cells}
   </Table>
@@ -505,8 +544,8 @@ async function saveHistoryFile(
 
 ipcMain.handle(
   "export-history-pdf",
-  async (_, rows: HistoryRow[]): Promise<{ saved: boolean; path?: string }> => {
-    const html = buildHistoryHtml(rows);
+  async (_, rows: HistoryRow[], groups: HistoryGroup[] = []): Promise<{ saved: boolean; path?: string }> => {
+    const html = buildHistoryHtml(rows, groups);
     const pdfWindow = new BrowserWindow({
       show: false,
       webPreferences: { offscreen: true },
@@ -520,7 +559,7 @@ ipcMain.handle(
         landscape: false,
         margins: { marginType: "default" },
       });
-      return await saveHistoryFile("Historie.pdf", pdfBuffer, [
+      return await saveHistoryFile("Veranlagungshistorie.pdf", pdfBuffer, [
         { name: "PDF", extensions: ["pdf"] },
       ]);
     } catch (error) {
@@ -534,9 +573,9 @@ ipcMain.handle(
 
 ipcMain.handle(
   "export-history-excel",
-  async (_, rows: HistoryRow[]): Promise<{ saved: boolean; path?: string }> => {
-    const xml = buildHistoryExcelXml(rows);
-    return await saveHistoryFile("Historie.xls", xml, [
+  async (_, rows: HistoryRow[], groups: HistoryGroup[] = []): Promise<{ saved: boolean; path?: string }> => {
+    const xml = buildHistoryExcelXml(rows, groups);
+    return await saveHistoryFile("Veranlagungshistorie.xls", xml, [
       { name: "Excel (XML)", extensions: ["xls"] },
       { name: "XML", extensions: ["xml"] },
     ]);

@@ -16,6 +16,7 @@ import {
   Select,
   Space,
   Statistic,
+  Switch,
   Table,
   theme,
   Tooltip,
@@ -39,6 +40,18 @@ import {
   TableOutlined,
 } from "@ant-design/icons";
 import { RangePickerProps } from "antd/lib/date-picker";
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title as ChartTitle,
+  Tooltip as ChartTooltip,
+  Legend,
+  Filler,
+} from "chart.js";
+import { Line } from "react-chartjs-2";
 import packageJson from "../package.json";
 import logoPng from "/logo.png";
 import {
@@ -48,6 +61,22 @@ import {
 } from "./utils/interestCalculation";
 
 dayjs.extend(isLeapYear);
+
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  ChartTitle,
+  ChartTooltip,
+  Legend,
+  Filler,
+);
+
+interface HistoryGroup {
+  name: string;
+  banks: string[];
+}
 
 interface KontoData {
   bankName: string;
@@ -170,9 +199,13 @@ export function AppLayout({
   const [quartalsBeginn, setQuartalsBeginn] = useState<Dayjs | null>(null);
   const [quartalsEnde, setQuartalsEnde] = useState<Dayjs | null>(null);
   const hasLoadedData = useRef(false);
+  const hasLoadedGroups = useRef(false);
   const [tableScrollY, setTableScrollY] = useState(300);
   const tableRegionRef = useRef<HTMLDivElement>(null);
   const [isNarrow, setIsNarrow] = useState(() => window.innerWidth <= 1080);
+  const [historyGroups, setHistoryGroups] = useState<HistoryGroup[]>([]);
+  const [groupConfigOpen, setGroupConfigOpen] = useState(false);
+  const [newGroupName, setNewGroupName] = useState("");
 
   useEffect(() => {
     const onResize = () => setIsNarrow(window.innerWidth <= 1080);
@@ -228,6 +261,23 @@ export function AppLayout({
       cancelled = true;
     };
   }, []);
+
+  // Load history groups
+  useEffect(() => {
+    if (!window.ipcRenderer) return;
+    window.ipcRenderer.invoke("load-history-groups").then((raw: string) => {
+      try {
+        if (raw) setHistoryGroups(JSON.parse(raw));
+      } catch { /* ignore */ }
+      hasLoadedGroups.current = true;
+    });
+  }, []);
+
+  // Save history groups when changed
+  useEffect(() => {
+    if (!hasLoadedGroups.current || !window.ipcRenderer) return;
+    window.ipcRenderer.send("save-history-groups", JSON.stringify(historyGroups, null, 2));
+  }, [historyGroups]);
 
   useEffect(() => {
     if (!hasLoadedData.current || !window.ipcRenderer) return;
@@ -883,6 +933,7 @@ export function AppLayout({
   };
 
   const [historyPreviewOpen, setHistoryPreviewOpen] = useState(false);
+  const [historyShowChart, setHistoryShowChart] = useState(false);
 
   const handleExportHistoryPdf = async () => {
     const rows = buildHistoryRows(data);
@@ -890,7 +941,7 @@ export function AppLayout({
       message.warning("Keine Daten zum Exportieren vorhanden.");
       return;
     }
-    const result = await window.ipcRenderer.invoke("export-history-pdf", rows);
+    const result = await window.ipcRenderer.invoke("export-history-pdf", rows, historyGroups);
     if (result?.saved) {
       message.success(`Historie als PDF gespeichert: ${result.path}`);
     }
@@ -905,6 +956,7 @@ export function AppLayout({
     const result = await window.ipcRenderer.invoke(
       "export-history-excel",
       rows,
+      historyGroups,
     );
     if (result?.saved) {
       message.success(`Historie als Excel gespeichert: ${result.path}`);
@@ -933,6 +985,13 @@ export function AppLayout({
       label: "Als Excel exportieren",
       onClick: handleExportHistoryExcel,
       disabled: data.length === 0,
+    },
+    { type: "divider" },
+    {
+      key: "groups",
+      icon: <TableOutlined />,
+      label: "Gruppen konfigurieren",
+      onClick: () => setGroupConfigOpen(true),
     },
   ];
 
@@ -1665,9 +1724,21 @@ export function AppLayout({
       </Layout>
 
       <Modal
-        title="Chronologische Historie aller Banken"
+        title={
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <span>Chronologische Historie aller Banken</span>
+            <Switch
+              checked={historyShowChart}
+              onChange={setHistoryShowChart}
+              checkedChildren="Diagramm"
+              unCheckedChildren="Tabelle"
+            />
+          </div>
+        }
         open={historyPreviewOpen}
         onCancel={() => setHistoryPreviewOpen(false)}
+        width="60vw"
+        styles={{ body: { maxHeight: "80vh", overflow: "auto" } }}
         footer={[
           <Button
             key="pdf"
@@ -1685,20 +1756,14 @@ export function AppLayout({
           >
             Als Excel
           </Button>,
-          <Button
-            key="close"
-            type="primary"
-            onClick={() => setHistoryPreviewOpen(false)}
-          >
-            Schließen
-          </Button>,
         ]}
-        width={900}
       >
+        {!historyShowChart ? (
         <Table
           size="small"
+          bordered
           pagination={false}
-          scroll={{ y: 400 }}
+          scroll={{ y: "65vh" }}
           dataSource={historyPreviewRows}
           rowKey={(record, index) =>
             `${record.datum}-${record.bankName}-${record.ereignis}-${index}`
@@ -1716,38 +1781,214 @@ export function AppLayout({
               key: "bankName",
             },
             {
-              title: "Menge (€)",
-              dataIndex: "menge",
-              key: "menge",
-              align: "right",
-              render: (menge: number) =>
-                menge.toLocaleString("de-DE", {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                }),
-            },
-            {
-              title: "Zinssatz",
-              dataIndex: "prozent",
-              key: "prozent",
-              align: "right",
-              render: (prozent: number) => (
-                <span>
-                  {prozent.toLocaleString("de-DE", {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })}
-                  %
-                </span>
-              ),
-            },
-            {
-              title: "Ereignis",
-              dataIndex: "ereignis",
-              key: "ereignis",
+              title: "Veranlagung (€)",
+              key: "veranlagung-group",
+              children: [
+                ...(historyGroups.length > 0
+                  ? historyGroups.map((group) => ({
+                      title: group.name,
+                      key: `veranlagung-${group.name}`,
+                      align: "right" as const,
+                      width: 160,
+                      render: (_: unknown, record: HistoryRow) =>
+                        record.ereignis === "Eröffnung" &&
+                        group.banks.includes(record.bankName)
+                          ? record.menge.toLocaleString("de-DE", {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })
+                          : "",
+                    }))
+                  : [
+                      {
+                        title: "Betrag",
+                        key: "veranlagung",
+                        align: "right" as const,
+                        width: 160,
+                        render: (_: unknown, record: HistoryRow) =>
+                          record.ereignis === "Eröffnung"
+                            ? record.menge.toLocaleString("de-DE", {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })
+                            : "",
+                      },
+                    ]),
+                {
+                  title: "Ablauf",
+                  key: "ablauf",
+                  align: "right" as const,
+                  width: 160,
+                  onCell: () => ({ style: { backgroundColor: "rgba(0,0,0,0.04)" } }),
+                  render: (_: unknown, record: HistoryRow) =>
+                    record.ereignis === "Ablauf"
+                      ? record.menge.toLocaleString("de-DE", {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })
+                      : "",
+                },
+              ],
             },
           ]}
         />
+        ) : historyPreviewRows.length > 0 ? (() => {
+          const dates = [...new Set(historyPreviewRows.map((r) => r.datum))];
+          const runningTotals: Record<string, number[]> = {};
+
+          // Always compute "Gesamt"
+          runningTotals["Gesamt"] = [];
+          let totalSum = 0;
+          dates.forEach((d) => {
+            const rowsForDate = historyPreviewRows.filter((r) => r.datum === d);
+            rowsForDate.forEach((r) => {
+              if (r.ereignis === "Eröffnung") totalSum += r.menge;
+              if (r.ereignis === "Ablauf") totalSum -= r.menge;
+            });
+            runningTotals["Gesamt"].push(totalSum);
+          });
+
+          // Per group
+          if (historyGroups.length > 0) {
+            historyGroups.forEach((g) => {
+              runningTotals[g.name] = [];
+              let sum = 0;
+              dates.forEach((d) => {
+                const rowsForDate = historyPreviewRows.filter((r) => r.datum === d);
+                rowsForDate.forEach((r) => {
+                  if (g.banks.includes(r.bankName)) {
+                    if (r.ereignis === "Eröffnung") sum += r.menge;
+                    if (r.ereignis === "Ablauf") sum -= r.menge;
+                  }
+                });
+                runningTotals[g.name].push(sum);
+              });
+            });
+          }
+
+          const colors = [
+            "#333333", "#1677ff", "#52c41a", "#faad14", "#f5222d", "#722ed1",
+            "#13c2c2", "#eb2f96", "#fa8c16",
+          ];
+
+          const lineData = {
+            labels: dates,
+            datasets: Object.keys(runningTotals).map((name, i) => ({
+              label: name,
+              data: runningTotals[name],
+              borderColor: colors[i % colors.length],
+              backgroundColor: colors[i % colors.length] + "33",
+              fill: name === "Gesamt",
+              tension: 0.3,
+              borderWidth: name === "Gesamt" ? 3 : 2,
+            })),
+          };
+
+          const lineOptions = {
+            responsive: true,
+            plugins: {
+              title: { display: true, text: "Veranlagungsverlauf (kumulativ)" },
+              legend: { position: "top" as const },
+            },
+            scales: {
+              y: {
+                beginAtZero: true,
+                ticks: {
+                  callback: (v: unknown) =>
+                    Number(v).toLocaleString("de-DE") + " €",
+                },
+              },
+            },
+          };
+
+          return (
+            <div style={{ height: "65vh", display: "flex", alignItems: "center" }}>
+              <Line data={lineData} options={lineOptions} />
+            </div>
+          );
+        })() : null}
+      </Modal>
+
+      <Modal
+        title="Historie-Gruppen konfigurieren"
+        open={groupConfigOpen}
+        onCancel={() => setGroupConfigOpen(false)}
+        footer={
+          <Button type="primary" onClick={() => setGroupConfigOpen(false)}>
+            Fertig
+          </Button>
+        }
+        width={600}
+      >
+        <Typography.Paragraph type="secondary">
+          Erstellen Sie Gruppen, um in der Historie separate Spalten pro Gruppe
+          anzuzeigen. Jede Gruppe enthält ausgewählte Banken.
+        </Typography.Paragraph>
+        <Space direction="vertical" style={{ width: "100%" }} size="middle">
+          {historyGroups.map((group, idx) => (
+            <Card
+              key={idx}
+              size="small"
+              title={group.name}
+              extra={
+                <Button
+                  type="text"
+                  danger
+                  icon={<DeleteOutlined />}
+                  onClick={() =>
+                    setHistoryGroups((prev) => prev.filter((_, i) => i !== idx))
+                  }
+                />
+              }
+            >
+              <Select
+                mode="multiple"
+                style={{ width: "100%" }}
+                placeholder="Banken auswählen"
+                value={group.banks}
+                onChange={(banks) =>
+                  setHistoryGroups((prev) =>
+                    prev.map((g, i) => (i === idx ? { ...g, banks } : g)),
+                  )
+                }
+                options={[
+                  ...new Set(data.map((d) => d.bankName)),
+                ].map((b) => ({ label: b, value: b }))}
+              />
+            </Card>
+          ))}
+          <Space.Compact style={{ width: "100%" }}>
+            <Input
+              placeholder="Neuer Gruppenname"
+              value={newGroupName}
+              onChange={(e) => setNewGroupName(e.target.value)}
+              onPressEnter={() => {
+                if (newGroupName.trim()) {
+                  setHistoryGroups((prev) => [
+                    ...prev,
+                    { name: newGroupName.trim(), banks: [] },
+                  ]);
+                  setNewGroupName("");
+                }
+              }}
+            />
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={() => {
+                if (newGroupName.trim()) {
+                  setHistoryGroups((prev) => [
+                    ...prev,
+                    { name: newGroupName.trim(), banks: [] },
+                  ]);
+                  setNewGroupName("");
+                }
+              }}
+            >
+              Hinzufügen
+            </Button>
+          </Space.Compact>
+        </Space>
       </Modal>
     </Layout>
   );
