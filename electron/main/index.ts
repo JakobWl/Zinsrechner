@@ -3,7 +3,10 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import os from "node:os";
+import https from "node:https";
 import * as fs from "node:fs";
+import electronUpdater from "electron-updater";
+const { autoUpdater } = electronUpdater as typeof import("electron-updater");
 
 createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -27,6 +30,130 @@ export const VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL;
 process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL
   ? path.join(process.env.APP_ROOT, "public")
   : RENDERER_DIST;
+
+// Microsoft Store (AppX) packages are installed under WindowsApps and cannot
+// be self-updated by electron-updater — the Store handles updates. We detect
+// that case so the "Aktualisieren" button opens the Store's updates page.
+function isMicrosoftStoreInstall(): boolean {
+  try {
+    if (process.platform !== "win32") return false;
+    // AppX apps run from C:\Program Files\WindowsApps\<identity>\
+    const exePath = app.getPath("exe");
+    if (exePath && exePath.toLowerCase().includes("windowsapps")) return true;
+    // The packaged app resources live under WindowsApps as well.
+    if (process.resourcesPath &&
+        process.resourcesPath.toLowerCase().includes("windowsapps")) {
+      return true;
+    }
+  } catch { /* ignore */ }
+  return false;
+}
+
+// ---- Update availability check (shared by Store + NSIS builds) ----
+// The Microsoft Store package cannot be queried for available updates from
+// inside the sandboxed AppX process, and electron-updater does not run for
+// Store builds. Instead we compare the running app version against the latest
+// GitHub release tag (the Store version always mirrors the GitHub release
+// version, since both are published from the same package.json version). This
+// lets the renderer show the "Aktualisieren" button ONLY when a newer version
+// actually exists, for both Store and NSIS installs.
+const GITHUB_OWNER = "JakobWl";
+const GITHUB_REPO = "Zinsrechner";
+
+function compareSemver(a: string, b: string): number {
+  const pa = a.replace(/^v/, "").split(".").map((n) => parseInt(n, 10) || 0);
+  const pb = b.replace(/^v/, "").split(".").map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const da = pa[i] ?? 0;
+    const db = pb[i] ?? 0;
+    if (da !== db) return da - db;
+  }
+  return 0;
+}
+
+function fetchLatestGithubRelease(): Promise<{ tag: string } | null> {
+  return new Promise((resolve) => {
+    const req = https.get(
+      {
+        hostname: "api.github.com",
+        path: `/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`,
+        headers: { "User-Agent": "Zinsrechner-Updater", Accept: "application/vnd.github+json" },
+        timeout: 8000,
+      },
+      (res) => {
+        if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
+          let body = "";
+          res.setEncoding("utf8");
+          res.on("data", (c) => (body += c));
+          res.on("end", () => {
+            try {
+              const json = JSON.parse(body);
+              resolve(json && json.tag_name ? { tag: json.tag_name } : null);
+            } catch {
+              resolve(null);
+            }
+          });
+        } else {
+          res.resume();
+          resolve(null);
+        }
+      },
+    );
+    req.on("error", () => resolve(null));
+    req.on("timeout", () => {
+      req.destroy();
+      resolve(null);
+    });
+  });
+}
+
+// Returns { available: boolean, latest?: string } so the renderer can decide
+// whether to render the "Aktualisieren" button at all.
+ipcMain.handle("check-update-available", async (): Promise<{
+  available: boolean;
+  latest?: string;
+}> => {
+  const release = await fetchLatestGithubRelease();
+  if (!release || !release.tag) return { available: false };
+  const current = app.getVersion();
+  const latest = release.tag.replace(/^v/, "");
+  return { available: compareSemver(latest, current) > 0, latest };
+});
+
+// ---- Auto-updater (NSIS / GitHub release builds) ----
+// For non-Store builds we delegate to electron-updater, which reads the
+// provider config baked into app-update.yml at build time.
+let updaterEventsBound = false;
+function bindUpdaterEvents() {
+  if (updaterEventsBound) return;
+  updaterEventsBound = true;
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.on("update-available", (info) => {
+    win?.webContents.send("update-status", {
+      status: "downloading",
+      version: info.version,
+    });
+  });
+  autoUpdater.on("update-not-available", () => {
+    win?.webContents.send("update-status", { status: "up-to-date" });
+  });
+  autoUpdater.on("update-downloaded", () => {
+    win?.webContents.send("update-status", { status: "downloaded" });
+  });
+  autoUpdater.on("error", (err) => {
+    win?.webContents.send("update-status", {
+      status: "error",
+      message: err?.message ?? String(err),
+    });
+  });
+  autoUpdater.on("download-progress", (progress) => {
+    win?.webContents.send("update-status", {
+      status: "downloading",
+      percent: Math.round(progress.percent),
+    });
+  });
+}
 
 // Disable GPU Acceleration for Windows 7
 if (os.release().startsWith("6.1")) app.disableHardwareAcceleration();
@@ -356,8 +483,41 @@ function buildHistoryHtml(rows: HistoryRow[], groups: HistoryGroup[]): string {
     ? groups.map((g) => g.name)
     : ["Betrag"];
 
+  // Compute today's date string and find insertion point
+  const todayStr = new Date().toLocaleDateString("de-AT", { day: "2-digit", month: "2-digit", year: "numeric" });
+  // Parse DD.MM.YYYY to comparable value
+  const parseDatum = (d: string) => {
+    const [day, month, year] = d.split(".");
+    return new Date(Number(year), Number(month) - 1, Number(day)).getTime();
+  };
+  const todayTime = parseDatum(todayStr);
+
+  // Compute running totals to find sum at today
+  let todaySumTotal = 0;
+  const todayGroupSums: Record<string, number> = {};
+  if (hasGroups) groups.forEach((g) => (todayGroupSums[g.name] = 0));
+  let todayRowInserted = false;
+
   const body = rows
-    .map((r) => {
+    .map((r, idx) => {
+      // Update running totals
+      if (r.ereignis === "Eröffnung") {
+        todaySumTotal += r.menge;
+        if (hasGroups) {
+          groups.forEach((g) => {
+            if (g.banks.includes(r.bankName)) todayGroupSums[g.name] += r.menge;
+          });
+        }
+      }
+      if (r.ereignis === "Ablauf") {
+        todaySumTotal -= r.menge;
+        if (hasGroups) {
+          groups.forEach((g) => {
+            if (g.banks.includes(r.bankName)) todayGroupSums[g.name] -= r.menge;
+          });
+        }
+      }
+
       const mengeText = r.menge.toLocaleString("de-DE", {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
@@ -377,14 +537,57 @@ function buildHistoryHtml(rows: HistoryRow[], groups: HistoryGroup[]): string {
 
       const ablaufCell = `<td style="text-align:right;background:#f5f5f5">${r.ereignis === "Ablauf" ? mengeText : ""}</td>`;
 
-      return `<tr>
+      const row = `<tr>
           <td>${r.datum}</td>
           <td>${escapeXml(r.bankName)}</td>
           ${groupCells}
           ${ablaufCell}
         </tr>`;
+
+      // Check if we need to insert the today summary row after this row
+      let todayRow = "";
+      if (!todayRowInserted) {
+        const currentTime = parseDatum(r.datum);
+        const nextTime = idx < rows.length - 1 ? parseDatum(rows[idx + 1].datum) : Infinity;
+        if (currentTime <= todayTime && nextTime > todayTime) {
+          todayRowInserted = true;
+          const sumText = todaySumTotal.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          const todayGroupCells = hasGroups
+            ? groups.map((g) => {
+                const val = todayGroupSums[g.name].toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                return `<td style="text-align:right;color:#fff;font-weight:bold">${val}</td>`;
+              }).join("")
+            : `<td style="text-align:right;color:#fff;font-weight:bold">${sumText}</td>`;
+          todayRow = `<tr style="background:#1677ff !important;color:#fff;font-weight:bold">
+            <td style="color:#fff;font-weight:bold">${todayStr}</td>
+            <td style="color:#fff;font-weight:bold">⟶ Summe heute</td>
+            ${todayGroupCells}
+            <td style="text-align:right;color:#fff;font-weight:bold">${sumText}</td>
+          </tr>`;
+        }
+      }
+
+      return row + todayRow;
     })
     .join("");
+
+  // If today is after all rows, append summary at end
+  let todayAppendRow = "";
+  if (!todayRowInserted && rows.length > 0) {
+    const sumText = todaySumTotal.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const todayGroupCells = hasGroups
+      ? groups.map((g) => {
+          const val = todayGroupSums[g.name].toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          return `<td style="text-align:right;color:#fff;font-weight:bold">${val}</td>`;
+        }).join("")
+      : `<td style="text-align:right;color:#fff;font-weight:bold">${sumText}</td>`;
+    todayAppendRow = `<tr style="background:#1677ff !important;color:#fff;font-weight:bold">
+      <td style="color:#fff;font-weight:bold">${todayStr}</td>
+      <td style="color:#fff;font-weight:bold">⟶ Summe heute</td>
+      ${todayGroupCells}
+      <td style="text-align:right;color:#fff;font-weight:bold">${sumText}</td>
+    </tr>`;
+  }
 
   const colCount = 2 + veranlagungCols.length + 1;
   const colWidth = Math.floor(56 / (veranlagungCols.length + 1));
@@ -423,7 +626,7 @@ function buildHistoryHtml(rows: HistoryRow[], groups: HistoryGroup[]): string {
       </tr>
     </thead>
     <tbody>
-      ${body}
+      ${body}${todayAppendRow}
     </tbody>
   </table>
 </body>
@@ -435,8 +638,28 @@ function buildHistoryExcelXml(rows: HistoryRow[], groups: HistoryGroup[]): strin
   const veranlagungCols = hasGroups ? groups.map((g) => g.name) : ["Betrag"];
   const headerStyle = ' ss:StyleID="headerRow"';
 
+  const parseDatumExcel = (d: string) => {
+    const [day, month, year] = d.split(".");
+    return new Date(Number(year), Number(month) - 1, Number(day)).getTime();
+  };
+  const todayStrExcel = new Date().toLocaleDateString("de-AT", { day: "2-digit", month: "2-digit", year: "numeric" });
+  const todayTimeExcel = parseDatumExcel(todayStrExcel);
+  let excelSum = 0;
+  const excelGroupSums: Record<string, number> = {};
+  if (hasGroups) groups.forEach((g) => (excelGroupSums[g.name] = 0));
+  let excelTodayInserted = false;
+
   const cells = rows
-    .map((r) => {
+    .map((r, idx) => {
+      if (r.ereignis === "Eröffnung") {
+        excelSum += r.menge;
+        if (hasGroups) groups.forEach((g) => { if (g.banks.includes(r.bankName)) excelGroupSums[g.name] += r.menge; });
+      }
+      if (r.ereignis === "Ablauf") {
+        excelSum -= r.menge;
+        if (hasGroups) groups.forEach((g) => { if (g.banks.includes(r.bankName)) excelGroupSums[g.name] -= r.menge; });
+      }
+
       const mengeText = r.menge.toLocaleString("de-DE", {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
@@ -456,14 +679,56 @@ function buildHistoryExcelXml(rows: HistoryRow[], groups: HistoryGroup[]): strin
 
       const ablaufVal = r.ereignis === "Ablauf" ? mengeText : "";
 
-      return `<Row>
+      let row = `<Row>
         <Cell${headerStyle}><Data ss:Type="String">${escapeXml(r.datum)}</Data></Cell>
         <Cell${headerStyle}><Data ss:Type="String">${escapeXml(r.bankName)}</Data></Cell>
         ${groupCells}
         <Cell ss:StyleID="ablauf"><Data ss:Type="String">${escapeXml(ablaufVal)}</Data></Cell>
       </Row>`;
+
+      // Insert today summary row
+      if (!excelTodayInserted) {
+        const currentTime = parseDatumExcel(r.datum);
+        const nextTime = idx < rows.length - 1 ? parseDatumExcel(rows[idx + 1].datum) : Infinity;
+        if (currentTime <= todayTimeExcel && nextTime > todayTimeExcel) {
+          excelTodayInserted = true;
+          const sumText = excelSum.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          const todayGroupCells = hasGroups
+            ? groups.map((g) => {
+                const val = excelGroupSums[g.name].toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                return `<Cell ss:StyleID="todayRow"><Data ss:Type="String">${escapeXml(val)}</Data></Cell>`;
+              }).join("\n        ")
+            : `<Cell ss:StyleID="todayRow"><Data ss:Type="String">${escapeXml(sumText)}</Data></Cell>`;
+          row += `\n      <Row>
+        <Cell ss:StyleID="todayRow"><Data ss:Type="String">${escapeXml(todayStrExcel)}</Data></Cell>
+        <Cell ss:StyleID="todayRow"><Data ss:Type="String">\u27f6 Summe heute</Data></Cell>
+        ${todayGroupCells}
+        <Cell ss:StyleID="todayRow"><Data ss:Type="String">${escapeXml(sumText)}</Data></Cell>
+      </Row>`;
+        }
+      }
+
+      return row;
     })
     .join("\n");
+
+  // Append if today is after all rows
+  let excelTodayAppendRow = "";
+  if (!excelTodayInserted && rows.length > 0) {
+    const sumText = excelSum.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const todayGroupCells = hasGroups
+      ? groups.map((g) => {
+          const val = excelGroupSums[g.name].toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          return `<Cell ss:StyleID="todayRow"><Data ss:Type="String">${escapeXml(val)}</Data></Cell>`;
+        }).join("\n        ")
+      : `<Cell ss:StyleID="todayRow"><Data ss:Type="String">${escapeXml(sumText)}</Data></Cell>`;
+    excelTodayAppendRow = `\n      <Row>
+      <Cell ss:StyleID="todayRow"><Data ss:Type="String">${escapeXml(todayStrExcel)}</Data></Cell>
+      <Cell ss:StyleID="todayRow"><Data ss:Type="String">\u27f6 Summe heute</Data></Cell>
+      ${todayGroupCells}
+      <Cell ss:StyleID="todayRow"><Data ss:Type="String">${escapeXml(sumText)}</Data></Cell>
+    </Row>`;
+  }
 
   const columns = [
     '<Column ss:Width="110"/>',
@@ -507,6 +772,11 @@ function buildHistoryExcelXml(rows: HistoryRow[], groups: HistoryGroup[]): strin
    <Alignment ss:Horizontal="Right"/>
    <Interior ss:Color="#F5F5F5" ss:Pattern="Solid"/>
   </Style>
+  <Style ss:ID="todayRow">
+   <Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1" ss:Color="#FFFFFF"/>
+   <Interior ss:Color="#1677FF" ss:Pattern="Solid"/>
+   <Alignment ss:Horizontal="Right"/>
+  </Style>
  </Styles>
  <Worksheet ss:Name="Historie">
   <Table>
@@ -514,7 +784,7 @@ function buildHistoryExcelXml(rows: HistoryRow[], groups: HistoryGroup[]): strin
    <Row>
     ${headerCells}
    </Row>
-   ${cells}
+   ${cells}${excelTodayAppendRow}
   </Table>
   <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
    <Selected/>
@@ -583,6 +853,54 @@ ipcMain.handle(
 );
 
 // New window example arg: new windows url
+// ---- Update handling (Aktualisieren button) ----
+// The renderer calls "check-for-updates" when the user clicks "Aktualisieren".
+// Store builds open the Microsoft Store updates page; NSIS builds use
+// electron-updater to check + download, then the renderer triggers install.
+ipcMain.handle("check-for-updates", async (): Promise<{
+  store: boolean;
+  status: string;
+  version?: string;
+  message?: string;
+}> => {
+  if (isMicrosoftStoreInstall()) {
+    // Open the Store's "Downloads and updates" page so the user can pull the
+    // latest version published via Partner Center.
+    shell.openExternal("ms-windows-store://downloadsandupdates");
+    return { store: true, status: "store-opened" };
+  }
+  try {
+    bindUpdaterEvents();
+    const result = await autoUpdater.checkForUpdates();
+    if (!result || !result.updateInfo) {
+      return { store: false, status: "up-to-date" };
+    }
+    return {
+      store: false,
+      status: "available",
+      version: result.updateInfo.version,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { store: false, status: "error", message };
+  }
+});
+
+ipcMain.handle("install-update", async (): Promise<{ ok: boolean }> => {
+  try {
+    if (isMicrosoftStoreInstall()) {
+      shell.openExternal("ms-windows-store://downloadsandupdates");
+      return { ok: true };
+    }
+    // quitAndInstall restarts the app and applies the downloaded update.
+    autoUpdater.quitAndInstall();
+    return { ok: true };
+  } catch (error) {
+    console.error("Error installing update:", error);
+    return { ok: false };
+  }
+});
+
 ipcMain.handle("open-win", (_, arg) => {
   const childWindow = new BrowserWindow({
     webPreferences: {

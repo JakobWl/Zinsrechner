@@ -229,11 +229,21 @@ html[data-theme="dark"] body {
 .table-region .ant-table-wrapper,
 .table-region .ant-spin-nested-loading,
 .table-region .ant-spin-container,
-.table-region .ant-table,
-.table-region .ant-table-container {
+.table-region .ant-table {
   flex: 1 1 0;
   min-height: 0;
   height: 100%;
+}
+
+/* The container holds the header + scrollable body and the fixed
+   .ant-table-summary footer is its sibling inside .ant-table. Do NOT
+   force the container to height:100% (that pushes the summary past the
+   bottom and clips it via overflow:hidden). Instead let it size to its
+   content (header + body whose max-height is driven by tableScrollY),
+   so the fixed summary flows naturally below it and stays visible. */
+.table-region .ant-table-container {
+  flex: 1 1 0;
+  min-height: 0;
 }
 
 .table .ant-table-body,
@@ -549,4 +559,10 @@ html[data-theme="dark"] .kbd-hint {
   .kbd-hint-corner {
     display: none;
   }
+}
+
+.history-today-row td {
+  background: #1677ff !important;
+  color: #fff !important;
+  font-weight: bold !important;
 }
