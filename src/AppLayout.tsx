@@ -219,11 +219,19 @@ export function AppLayout({
     if (!tableRegion) return;
 
     const updateTableHeight = () => {
-      setTableScrollY(Math.max(240, tableRegion.clientHeight - 96));
+      const regionTop = tableRegion.getBoundingClientRect().top;
+      const pageBottomPadding = window.innerWidth <= 720 ? 16 : 24;
+      const availableRegionHeight =
+        window.innerWidth <= 1080
+          ? Math.min(Math.max(window.innerHeight * 0.6, 360), 560)
+          : window.innerHeight - regionTop - pageBottomPadding;
+
+      setTableScrollY(Math.max(240, Math.floor(availableRegionHeight - 96)));
     };
 
     updateTableHeight();
     const observer = new ResizeObserver(updateTableHeight);
+    observer.observe(document.body);
     observer.observe(tableRegion);
     window.addEventListener("resize", updateTableHeight);
 
