@@ -358,13 +358,28 @@ export function AppLayout({
   );
 
   useEffect(() => {
-    scheduleResize();
-    window.addEventListener("resize", scheduleResize);
-    const ro = new ResizeObserver(scheduleResize);
-    if (tableRegionRef.current) ro.observe(tableRegionRef.current);
+    const tableRegion = tableRegionRef.current;
+    if (!tableRegion) return;
+
+    const updateTableHeight = () => {
+      const regionTop = tableRegion.getBoundingClientRect().top;
+      const pageBottomPadding = window.innerWidth <= 720 ? 16 : 24;
+      const availableRegionHeight =
+        window.innerWidth <= 1080
+          ? Math.min(Math.max(window.innerHeight * 0.6, 360), 560)
+          : window.innerHeight - regionTop - pageBottomPadding;
+
+      setTableScrollY(Math.max(240, Math.floor(availableRegionHeight - 96)));
+    };
+
+    updateTableHeight();
+    const observer = new ResizeObserver(updateTableHeight);
+    observer.observe(document.body);
+    observer.observe(tableRegion);
+    window.addEventListener("resize", updateTableHeight);
+
     return () => {
       window.removeEventListener("resize", scheduleResize);
-      ro.disconnect();
       if (rafId.current != null) window.cancelAnimationFrame(rafId.current);
     };
   }, [scheduleResize]);
