@@ -611,7 +611,7 @@ function buildHistoryHtml(rows: HistoryRow[], groups: HistoryGroup[]): string {
 </style>
 </head>
 <body>
-  <h1>Chronologische Historie aller Banken</h1>
+  <h1>Chronologische Historie aller Veranlagungen</h1>
   <div class="meta">Erstellt am ${generated}</div>
   <table>
     <thead>
@@ -622,7 +622,7 @@ function buildHistoryHtml(rows: HistoryRow[], groups: HistoryGroup[]): string {
       </tr>
       <tr>
         ${veranlagungCols.map((c) => `<th style="width:${colWidth}%; text-align:right">${escapeXml(c)}</th>`).join("")}
-        <th style="width:${colWidth}%; text-align:right; background:#f5f5f5">Ablauf</th>
+        <th style="width:${58 - veranlagungCols.length * colWidth}%; text-align:right; background:#f5f5f5">Ablauf</th>
       </tr>
     </thead>
     <tbody>

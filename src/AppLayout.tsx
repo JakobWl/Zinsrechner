@@ -234,6 +234,8 @@ export function AppLayout({
     if (rafId.current != null) return;
     rafId.current = window.requestAnimationFrame(() => {
       rafId.current = null;
+      // eslint-disable-next-line no-console
+      console.log("[rAF] enter");
       const narrow = window.innerWidth <= 1080;
       setIsNarrow((prev) => (prev === narrow ? prev : narrow));
 
@@ -256,11 +258,9 @@ export function AppLayout({
       // e.g. first paint).
       let y: number;
       const regionH = el.clientHeight;
+      const thead = el.querySelector<HTMLElement>(".ant-table-thead");
+      const summary = el.querySelector<HTMLElement>(".ant-table-summary");
       if (regionH > 0) {
-        const thead = el.querySelector<HTMLElement>(".ant-table-thead");
-        const summary = el.querySelector<HTMLElement>(
-          ".ant-table-summary",
-        );
         const overhead =
           (thead ? thead.getBoundingClientRect().height : 0) +
           (summary ? summary.getBoundingClientRect().height : 0);
@@ -269,6 +269,8 @@ export function AppLayout({
         const top = el.getBoundingClientRect().top;
         y = Math.max(150, window.innerHeight - top - 154);
       }
+      // eslint-disable-next-line no-console
+      console.log("[tableScrollY]", { regionH, theadH: thead ? thead.getBoundingClientRect().height : 0, summaryH: summary ? summary.getBoundingClientRect().height : 0, y });
       setTableScrollY((prev) => (prev === y ? prev : y));
     });
   }, []);
@@ -1475,7 +1477,18 @@ export function AppLayout({
                 },
                 plugins: {
                   title: { display: true, text: "Veranlagungsverlauf (kumulativ)" },
-                  legend: { position: "top" as const },
+                  legend: {
+                    position: "top" as const,
+                    // The "Gesamt" dataset only adds a stacked top-border line
+                    // and always overlaps the group areas when the groups
+                    // already fill the whole diagram, so hide its (otherwise
+                    // confusing and always-overlapping) legend toggle button.
+                    // The dataset itself stays functional (line still drawn,
+                    // tooltip value still computed).
+                    labels: {
+                      filter: (item: { text: string }) => item.text !== "Gesamt",
+                    },
+                  },
                   tooltip: {
                     mode: "index" as const,
                     intersect: false,
@@ -1642,7 +1655,7 @@ export function AppLayout({
           <Dropdown menu={{ items: historyMenuItems }} placement="bottomRight">
             <Button
               type="text"
-              aria-label="Chronologische Historie aller Banken öffnen"
+              aria-label="Chronologische Historie aller Veranlagungen öffnen"
               icon={<HistoryOutlined />}
             >
               Historie
@@ -2247,7 +2260,7 @@ export function AppLayout({
       <Modal
         title={
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <span>Chronologische Historie aller Banken</span>
+            <span>Chronologische Historie aller Veranlagungen</span>
             <Switch
               checked={historyShowChart}
               onChange={setHistoryShowChart}
