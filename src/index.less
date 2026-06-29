@@ -229,21 +229,30 @@ html[data-theme="dark"] body {
 .table-region .ant-table-wrapper,
 .table-region .ant-spin-nested-loading,
 .table-region .ant-spin-container,
-.table-region .ant-table {
+.table-region .ant-table,
+.table-region .ant-table-container {
   flex: 1 1 0;
   min-height: 0;
   height: 100%;
 }
 
-/* The container holds the header + scrollable body and the fixed
-   .ant-table-summary footer is its sibling inside .ant-table. Do NOT
-   force the container to height:100% (that pushes the summary past the
-   bottom and clips it via overflow:hidden). Instead let it size to its
-   content (header + body whose max-height is driven by tableScrollY),
-   so the fixed summary flows naturally below it and stays visible. */
 .table-region .ant-table-container {
+  display: flex;
+  flex-direction: column;
+}
+
+.table-region .ant-table-header {
+  flex: none;
+}
+
+.table-region .ant-table-body {
   flex: 1 1 0;
   min-height: 0;
+  max-height: none !important;
+}
+
+.table-region .ant-table-summary {
+  flex: none;
 }
 
 .table .ant-table-body,
@@ -427,26 +436,24 @@ html[data-theme="dark"] .table .ant-table-tbody > tr.row-warning > td.ant-table-
     grid-template-columns: repeat(2, 1fr);
   }
 
-  /* In stacked (narrow) layout the table keeps its own internal scroll
-     (x: max-content for the wide column set, y: tableScrollY) exactly like
-     in wide layout. We only relax the page-level clipping so the card can
-     grow with its content and is always visible, and give it a min height.
-     Do NOT force overflow-y:visible / max-height:none on .ant-table-body
-     here: that destroys the horizontal scroll container (overflow-x:auto)
-     the wide table relies on and clips the table out of view at low width. */
   .table-card {
     flex: none !important;
-    min-height: 520px;
+    overflow: hidden !important;
     max-width: 100%;
   }
 
   .table-card .ant-card-body {
+    overflow: hidden !important;
     max-width: 100%;
+    height: auto !important;
+    flex: none !important;
   }
 
   .table-region {
-    flex: none !important;
+    overflow: auto !important;
     max-width: 100%;
+    height: auto !important;
+    flex: none !important;
   }
 
   .table-region .ant-table-wrapper,
@@ -456,6 +463,11 @@ html[data-theme="dark"] .table .ant-table-tbody > tr.row-warning > td.ant-table-
   .table-region .ant-table-container {
     flex: none !important;
     height: auto !important;
+  }
+
+  .table-region .ant-table-body {
+    max-height: none !important;
+    overflow-y: visible !important;
   }
 }
 

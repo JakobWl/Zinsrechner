@@ -234,8 +234,6 @@ export function AppLayout({
     if (rafId.current != null) return;
     rafId.current = window.requestAnimationFrame(() => {
       rafId.current = null;
-      // eslint-disable-next-line no-console
-      console.log("[rAF] enter");
       const narrow = window.innerWidth <= 1080;
       setIsNarrow((prev) => (prev === narrow ? prev : narrow));
 
@@ -258,9 +256,11 @@ export function AppLayout({
       // e.g. first paint).
       let y: number;
       const regionH = el.clientHeight;
-      const thead = el.querySelector<HTMLElement>(".ant-table-thead");
-      const summary = el.querySelector<HTMLElement>(".ant-table-summary");
       if (regionH > 0) {
+        const thead = el.querySelector<HTMLElement>(".ant-table-thead");
+        const summary = el.querySelector<HTMLElement>(
+          ".ant-table-summary",
+        );
         const overhead =
           (thead ? thead.getBoundingClientRect().height : 0) +
           (summary ? summary.getBoundingClientRect().height : 0);
@@ -269,8 +269,6 @@ export function AppLayout({
         const top = el.getBoundingClientRect().top;
         y = Math.max(150, window.innerHeight - top - 154);
       }
-      // eslint-disable-next-line no-console
-      console.log("[tableScrollY]", { regionH, theadH: thead ? thead.getBoundingClientRect().height : 0, summaryH: summary ? summary.getBoundingClientRect().height : 0, y });
       setTableScrollY((prev) => (prev === y ? prev : y));
     });
   }, []);
@@ -358,28 +356,13 @@ export function AppLayout({
   );
 
   useEffect(() => {
-    const tableRegion = tableRegionRef.current;
-    if (!tableRegion) return;
-
-    const updateTableHeight = () => {
-      const regionTop = tableRegion.getBoundingClientRect().top;
-      const pageBottomPadding = window.innerWidth <= 720 ? 16 : 24;
-      const availableRegionHeight =
-        window.innerWidth <= 1080
-          ? Math.min(Math.max(window.innerHeight * 0.6, 360), 560)
-          : window.innerHeight - regionTop - pageBottomPadding;
-
-      setTableScrollY(Math.max(240, Math.floor(availableRegionHeight - 96)));
-    };
-
-    updateTableHeight();
-    const observer = new ResizeObserver(updateTableHeight);
-    observer.observe(document.body);
-    observer.observe(tableRegion);
-    window.addEventListener("resize", updateTableHeight);
-
+    scheduleResize();
+    window.addEventListener("resize", scheduleResize);
+    const ro = new ResizeObserver(scheduleResize);
+    if (tableRegionRef.current) ro.observe(tableRegionRef.current);
     return () => {
       window.removeEventListener("resize", scheduleResize);
+      ro.disconnect();
       if (rafId.current != null) window.cancelAnimationFrame(rafId.current);
     };
   }, [scheduleResize]);
@@ -1492,18 +1475,7 @@ export function AppLayout({
                 },
                 plugins: {
                   title: { display: true, text: "Veranlagungsverlauf (kumulativ)" },
-                  legend: {
-                    position: "top" as const,
-                    // The "Gesamt" dataset only adds a stacked top-border line
-                    // and always overlaps the group areas when the groups
-                    // already fill the whole diagram, so hide its (otherwise
-                    // confusing and always-overlapping) legend toggle button.
-                    // The dataset itself stays functional (line still drawn,
-                    // tooltip value still computed).
-                    labels: {
-                      filter: (item: { text: string }) => item.text !== "Gesamt",
-                    },
-                  },
+                  legend: { position: "top" as const },
                   tooltip: {
                     mode: "index" as const,
                     intersect: false,
@@ -1670,7 +1642,7 @@ export function AppLayout({
           <Dropdown menu={{ items: historyMenuItems }} placement="bottomRight">
             <Button
               type="text"
-              aria-label="Chronologische Historie aller Veranlagungen öffnen"
+              aria-label="Chronologische Historie aller Banken öffnen"
               icon={<HistoryOutlined />}
             >
               Historie
@@ -1788,7 +1760,7 @@ export function AppLayout({
                     min={0}
                     step={0.01}
                     aria-label="Zinssatz in Prozent"
-                    addonAfter="%"
+                    suffix="%"
                     decimalSeparator=","
                   />
                 </Form.Item>
@@ -1807,7 +1779,7 @@ export function AppLayout({
                     min={0}
                     step={1000}
                     aria-label="Nominalbetrag in Euro"
-                    addonAfter="€"
+                    suffix="€"
                     decimalSeparator=","
                   />
                 </Form.Item>
@@ -1925,7 +1897,7 @@ export function AppLayout({
                     min={0}
                     step={0.01}
                     aria-label="Zinssatz in Prozent"
-                    addonAfter="%"
+                    suffix="%"
                     decimalSeparator=","
                   />
                 </Form.Item>
@@ -1944,7 +1916,7 @@ export function AppLayout({
                     min={0}
                     step={1000}
                     aria-label="Nominalbetrag in Euro"
-                    addonAfter="€"
+                    suffix="€"
                     decimalSeparator=","
                   />
                 </Form.Item>
@@ -2076,8 +2048,8 @@ export function AppLayout({
               <Table
                 className="table"
                 dataSource={data}
-                rowKey={(record, index) =>
-                  `${record.bankName}-${record.kontoNumber}-${index}`
+                rowKey={(record) =>
+                  `${record.bankName}-${record.kontoNumber}-${record.startDatum.toISOString()}`
                 }
                 pagination={false}
                 size="middle"
@@ -2275,7 +2247,7 @@ export function AppLayout({
       <Modal
         title={
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <span>Chronologische Historie aller Veranlagungen</span>
+            <span>Chronologische Historie aller Banken</span>
             <Switch
               checked={historyShowChart}
               onChange={setHistoryShowChart}
@@ -2315,8 +2287,8 @@ export function AppLayout({
           pagination={false}
           scroll={{ y: "65vh" }}
           dataSource={historyPreviewRows}
-          rowKey={(record, index) =>
-            `${record.datum}-${record.bankName}-${record.ereignis}-${index}`
+          rowKey={(record) =>
+            `${record.datum}-${record.bankName}-${record.ereignis}-${record.menge}-${record.prozent}`
           }
           rowClassName={(record) =>
             record.ereignis === "Summe" ? "history-today-row" : ""
