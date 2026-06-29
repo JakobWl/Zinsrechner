@@ -209,7 +209,6 @@ export function AppLayout({
   const hasLoadedGroups = useRef(false);
   const [tableScrollY, setTableScrollY] = useState(300);
   const tableRegionRef = useRef<HTMLDivElement>(null);
-  const [isNarrow, setIsNarrow] = useState(() => window.innerWidth <= 1080);
   const [historyGroups, setHistoryGroups] = useState<HistoryGroup[]>([]);
   const [groupConfigOpen, setGroupConfigOpen] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
@@ -234,8 +233,7 @@ export function AppLayout({
     if (rafId.current != null) return;
     rafId.current = window.requestAnimationFrame(() => {
       rafId.current = null;
-      const narrow = window.innerWidth <= 1080;
-      setIsNarrow((prev) => (prev === narrow ? prev : narrow));
+      const narrow = window.innerWidth <= 768;
 
       const el = tableRegionRef.current;
       if (!el) return;
@@ -1677,139 +1675,7 @@ export function AppLayout({
         </div>
       </Layout.Header>
 
-      <Layout className={`app-body${isNarrow ? ' app-body-narrow' : ''}`}>
-        {isNarrow ? (
-          <div className="app-sider" role="complementary" aria-label="Konto erfassen">
-            <div className="app-sider-inner">
-            <Card
-              className="form-card"
-              title={
-                <Space>
-                  <BankOutlined
-                    style={{ color: "var(--ant-color-primary, #1668dc)" }}
-                  />
-                  <span>Neue Anlage erfassen</span>
-                </Space>
-              }
-            >
-              <Form
-                form={form}
-                layout="vertical"
-                onFinish={handleAddKonto}
-                requiredMark
-              >
-                <Form.Item
-                  label="Bankname"
-                  name="bankName"
-                  rules={[
-                    {
-                      required: true,
-                      message: "Bitte geben Sie den Banknamen ein.",
-                    },
-                  ]}
-                >
-                  <Input
-                    autoComplete="organization"
-                    placeholder="z. B. Erste Bank"
-                    aria-label="Bankname"
-                  />
-                </Form.Item>
-                <Form.Item
-                  label="Kontonummer"
-                  name="kontoNumber"
-                  rules={[
-                    {
-                      required: true,
-                      message: "Bitte geben Sie die Kontonummer ein.",
-                    },
-                  ]}
-                >
-                  <Input
-                    autoComplete="off"
-                    placeholder="z. B. 123456789"
-                    aria-label="Kontonummer"
-                  />
-                </Form.Item>
-                <Form.Item
-                  label="Zeitraum (Startdatum & Enddatum)"
-                  name="dateRange"
-                  rules={[
-                    {
-                      required: true,
-                      message: "Bitte wählen Sie den Zeitraum aus.",
-                    },
-                  ]}
-                >
-                  <DatePicker.RangePicker
-                    format="DD.MM.YYYY"
-                    style={{ width: "100%" }}
-                  />
-                </Form.Item>
-                <Form.Item
-                  label="Zinssatz (%)"
-                  name="zinssatz"
-                  rules={[
-                    {
-                      required: true,
-                      message: "Bitte geben Sie den Zinssatz ein.",
-                    },
-                  ]}
-                >
-                  <InputNumber
-                    style={{ width: "100%" }}
-                    min={0}
-                    step={0.01}
-                    aria-label="Zinssatz in Prozent"
-                    suffix="%"
-                    decimalSeparator=","
-                  />
-                </Form.Item>
-                <Form.Item
-                  label="Nominal (€)"
-                  name="nominal"
-                  rules={[
-                    {
-                      required: true,
-                      message: "Bitte geben Sie den Nominalbetrag ein.",
-                    },
-                  ]}
-                >
-                  <InputNumber
-                    style={{ width: "100%" }}
-                    min={0}
-                    step={1000}
-                    aria-label="Nominalbetrag in Euro"
-                    suffix="€"
-                    decimalSeparator=","
-                  />
-                </Form.Item>
-                <Form.Item
-                  label="Zinsmethode"
-                  name="dayCountConvention"
-                  initialValue="actual"
-                >
-                  <Select aria-label="Zinsmethode">
-                    <Select.Option value="actual">
-                      Tagegenau (365)
-                    </Select.Option>
-                    <Select.Option value="30/360">
-                      Kaufmännisch (30/360)
-                    </Select.Option>
-                  </Select>
-                </Form.Item>
-                <Button
-                  type="primary"
-                  htmlType="submit"
-                  block
-                  icon={<PlusOutlined />}
-                >
-                  Konto hinzufügen
-                </Button>
-              </Form>
-            </Card>
-          </div>
-          </div>
-        ) : (
+      <Layout className="app-body">
         <Layout.Sider
           className="app-sider"
           theme={isDarkMode ? "dark" : "light"}
@@ -1946,7 +1812,6 @@ export function AppLayout({
             </Card>
           </div>
         </Layout.Sider>
-        )}
 
         <Layout.Content
           id="main-content"
