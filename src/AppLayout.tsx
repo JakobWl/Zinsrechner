@@ -31,6 +31,7 @@ import {
   FileExcelOutlined,
   FilePdfOutlined,
   HistoryOutlined,
+  LineChartOutlined,
   MoonOutlined,
   PlusOutlined,
   PrinterOutlined,
@@ -45,6 +46,11 @@ import {
   calculateQuarterlyInterest,
   DayCountConvention,
 } from "./utils/interestCalculation";
+import ForecastView, {
+  forecastYearAggregates,
+  parseForecastState,
+} from "./components/ForecastView";
+import type { ForecastState } from "./components/ForecastView";
 
 dayjs.extend(isLeapYear);
 
@@ -79,6 +85,8 @@ interface HistoryRow {
   prozent: number;
   ereignis: string; // e.g. "Eröffnung" / "Ablauf"
   aenderung: "up" | "down" | "none";
+  /** Prognose-Zeile (aus `prognose.json`) – wird ausgegraut dargestellt. */
+  prognose?: boolean;
 }
 
 /**
@@ -143,6 +151,30 @@ function buildHistoryRows(data: KontoData[] | undefined): HistoryRow[] {
   });
 }
 
+/**
+ * Prognose-Zeilen für die Historie: pro Plan-Jahr eine Zeile mit dem
+ * geplanten Nominal, dem gewichteten Zinssatz und den Zinsen des Jahres.
+ * Diese Zeilen werden hinten angehängt und ausgegraut dargestellt.
+ */
+function buildForecastHistoryRows(
+  forecast: ForecastState | null,
+  reference?: Dayjs,
+): HistoryRow[] {
+  const start = reference ?? (forecast ? dayjs(forecast.startDate) : undefined);
+  return forecastYearAggregates(forecast, start).map((row) => ({
+    datum: `31.12.${row.year}`,
+    bankName: "Prognose",
+    menge: row.nominal,
+    prozent: row.ratePp,
+    ereignis: `Prognose ${row.year} · Zinsen ${row.interest.toLocaleString(
+      "de-DE",
+      { minimumFractionDigits: 2, maximumFractionDigits: 2 },
+    )} €`,
+    aenderung: "none",
+    prognose: true,
+  }));
+}
+
 export function AppLayout({
   onToggleDarkMode,
   isDarkMode,
@@ -157,7 +189,11 @@ export function AppLayout({
   const [quartalsBeginn, setQuartalsBeginn] = useState<Dayjs | null>(null);
   const [quartalsEnde, setQuartalsEnde] = useState<Dayjs | null>(null);
   const [tableScrollY, setTableScrollY] = useState(320);
+  const [view, setView] = useState<"main" | "prognose">("main");
+  const [forecast, setForecast] = useState<ForecastState | null>(null);
+  const [forecastLoaded, setForecastLoaded] = useState(false);
   const hasLoadedData = useRef(false);
+  const hasLoadedForecast = useRef(false);
   const tableRegionRef = useRef<HTMLDivElement>(null);
   const [form] = Form.useForm<KontoFormValues>();
 
@@ -213,6 +249,55 @@ export function AppLayout({
     if (!hasLoadedData.current || !window.ipcRenderer) return;
     window.ipcRenderer.send("save-data", JSON.stringify(data, null, 2));
   }, [data]);
+
+  // Prognose laden (prognose.json) – gleiches Muster wie konten.json.
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!window.ipcRenderer) {
+      hasLoadedForecast.current = true;
+      setForecastLoaded(true);
+      return;
+    }
+
+    window.ipcRenderer
+      .invoke("load-forecast")
+      .then((fileData: string) => {
+        if (cancelled) return;
+        hasLoadedForecast.current = true;
+
+        if (!fileData) {
+          setForecastLoaded(true);
+          return;
+        }
+
+        try {
+          const parsed = parseForecastState(JSON.parse(fileData));
+          setForecast(parsed);
+        } catch (error) {
+          console.error("Error parsing forecast data:", error);
+          message.error("Die gespeicherte Prognose konnte nicht geladen werden.");
+        }
+        setForecastLoaded(true);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        hasLoadedForecast.current = true;
+        setForecastLoaded(true);
+        console.error("Error loading forecast:", error);
+        message.error("Die gespeicherte Prognose konnte nicht geladen werden.");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Prognose speichern, sobald sie sich ändert.
+  useEffect(() => {
+    if (!hasLoadedForecast.current || !window.ipcRenderer || !forecast) return;
+    window.ipcRenderer.send("save-forecast", JSON.stringify(forecast, null, 2));
+  }, [forecast]);
 
   useEffect(() => {
     const tableRegion = tableRegionRef.current;
@@ -919,7 +1004,11 @@ export function AppLayout({
     },
   ];
 
-  const historyPreviewRows = buildHistoryRows(data);
+  // Historie: reale Ereignisse zuerst, Prognose-Zeilen hinten angehängt.
+  const historyPreviewRows = [
+    ...buildHistoryRows(data),
+    ...buildForecastHistoryRows(forecast),
+  ];
 
   return (
     <Layout className="layout" data-theme={isDarkMode ? "dark" : "light"}>
@@ -943,6 +1032,17 @@ export function AppLayout({
           </div>
         </Space>
         <div className="app-header-actions">
+          <Tooltip title="Mehrjährige Prognose mit Planwerten je Jahr">
+            <Button
+              type={view === "prognose" ? "primary" : "text"}
+              aria-label="Prognose öffnen"
+              aria-pressed={view === "prognose"}
+              icon={<LineChartOutlined />}
+              onClick={() => setView("prognose")}
+            >
+              Prognose
+            </Button>
+          </Tooltip>
           <Dropdown menu={{ items: historyMenuItems }} placement="bottomRight">
             <Tooltip title="Chronologische Historie aller Banken">
               <Button
@@ -1113,10 +1213,20 @@ export function AppLayout({
           role="main"
           tabIndex={-1}
         >
-          <div className="stat-grid">
-            <Card className="stat-card">
-              <Statistic title="Banken" value={data.length} />
-            </Card>
+          {view === "prognose" && forecastLoaded && (
+            <ForecastView
+              accounts={data}
+              onBack={() => setView("main")}
+              initialForecast={forecast}
+              onForecastChange={setForecast}
+            />
+          )}
+          {view === "main" && (
+            <>
+              <div className="stat-grid">
+                <Card className="stat-card">
+                  <Statistic title="Banken" value={data.length} />
+                </Card>
             <Card className="stat-card">
               <Statistic
                 title="Gesamtnominal (€)"
@@ -1499,6 +1609,8 @@ export function AppLayout({
               </Table>
             </div>
           </Card>
+            </>
+          )}
         </Layout.Content>
       </Layout>
 
@@ -1538,6 +1650,9 @@ export function AppLayout({
           pagination={false}
           scroll={{ y: 400 }}
           dataSource={historyPreviewRows}
+          rowClassName={(record) =>
+            (record as HistoryRow).prognose ? "history-row-prognose" : ""
+          }
           rowKey={(record, index) =>
             `${record.datum}-${record.bankName}-${record.ereignis}-${index}`
           }

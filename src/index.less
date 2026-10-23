@@ -346,3 +346,197 @@ html[data-theme="dark"] body {
     animation: none !important;
   }
 }
+
+/* --- Prognose --------------------------------------------------------- */
+
+.forecast-page {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  gap: 16px;
+}
+
+.forecast-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.forecast-card {
+  flex: 0 0 auto;
+  min-height: 0;
+}
+
+.forecast-hint {
+  display: block;
+  margin-bottom: 12px;
+}
+
+.forecast-matrix .ant-table-tbody > tr > td {
+  vertical-align: top;
+}
+
+.forecast-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 128px;
+}
+
+.forecast-cell .ant-input-number {
+  width: 100%;
+}
+
+.forecast-cell-interest {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.forecast-split-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.forecast-split-alert {
+  margin-bottom: 12px;
+}
+
+.forecast-split-table .forecast-split-amount {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Zelle der Aufteilung: Nominal (grau) über Zins (normal). */
+.forecast-split-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  line-height: 1.35;
+}
+
+.forecast-split-nominal {
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.forecast-split-interest {
+  color: rgba(0, 0, 0, 0.88);
+}
+
+/* Fußzeile "Gesamtzinsen pro Jahr" – etwas mehr Abstand zur Summenzeile. */
+.forecast-split-table .ant-table-summary > tr.forecast-split-year-row > td {
+  padding-top: 12px;
+  border-top: 1px solid rgba(0, 0, 0, 0.09);
+}
+
+.forecast-split-table .ant-table-summary > tr > td {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Dritte Karte: Summe oben und Summe unten in einer Karte. */
+.forecast-stat-merged .ant-statistic {
+  margin-bottom: 10px;
+}
+
+.forecast-stat-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.forecast-stat-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.forecast-stat-label {
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.forecast-stat-value {
+  color: rgba(0, 0, 0, 0.88);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.forecast-stat-tag {
+  align-self: flex-start;
+  margin: 0;
+}
+
+.forecast-stat-hint.ant-typography {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+html[data-theme="dark"] body .forecast-stat-label,
+html[data-theme="dark"] body .forecast-split-nominal {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+html[data-theme="dark"] body .forecast-stat-value,
+html[data-theme="dark"] body .forecast-split-interest {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+html[data-theme="dark"] body .forecast-stat-rows {
+  border-top-color: rgba(255, 255, 255, 0.12);
+}
+
+html[data-theme="dark"] body
+  .forecast-split-table
+  .ant-table-summary
+  > tr.forecast-split-year-row
+  > td {
+  border-top-color: rgba(255, 255, 255, 0.12);
+}
+
+/* Prognose-Zeilen in der Historie: ans Ende sortiert und ausgegraut. */
+.history-row-prognose > td {
+  opacity: 0.55;
+  font-style: italic;
+}
+
+.forecast-control {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.forecast-disclaimer {
+  display: block;
+  padding: 0 2px 4px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+@media (max-width: 720px) {
+  .forecast-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .forecast-split-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .forecast-control .ant-input-number {
+    width: 100% !important;
+  }
+}

@@ -232,6 +232,31 @@ ipcMain.on("save-data", (event, data) => {
   }
 });
 
+// Prognose-Zustand (Plan-Matrix, Horizon, Anteile) in eigener Datei speichern.
+ipcMain.handle("load-forecast", async () => {
+  try {
+    const userDataPath = app.getPath("userData");
+    const filePath = path.join(userDataPath, "prognose.json");
+    if (!fs.existsSync(filePath)) {
+      return "null"; // Kein gespeicherter Prognose-Zustand vorhanden
+    }
+    return fs.readFileSync(filePath, "utf8");
+  } catch (error) {
+    console.error("Error loading forecast:", error);
+    return "null";
+  }
+});
+
+ipcMain.on("save-forecast", (event, data) => {
+  try {
+    const userDataPath = app.getPath("userData");
+    const filePath = path.join(userDataPath, "prognose.json");
+    fs.writeFileSync(filePath, data, "utf8");
+  } catch (error) {
+    console.error("Error saving forecast:", error);
+  }
+});
+
 ipcMain.on("create-print-window", (event, data) => {
   let printWindow = new BrowserWindow({
     width: 1000,
