@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      publish_to_store:
+        description: "AppX nach dem Build an den Microsoft Store uebermitteln (benoetigt Secrets + Freigabe)"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -71,3 +76,56 @@ jobs:
         with:
           name: windows-build
           path: release/*/Zinsrechner-Store-*-x64.appx
+
+  # Optionale Store-Einreichung. Laeuft nur bei manuellem Start mit
+  # publish_to_store=true und wartet auf die Freigabe des Environments
+  # "microsoft-store" (Settings -> Environments -> Required reviewers).
+  store-publish:
+    needs: [check-version, build-windows]
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_to_store == true
+    runs-on: windows-latest
+    environment: microsoft-store
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download AppX package
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-build
+          path: store-package
+
+      - name: Setup Microsoft Store Developer CLI
+        uses: microsoft/microsoft-store-apppublisher@v1.1
+
+      - name: Configure Microsoft Store Developer CLI
+        shell: pwsh
+        env:
+          PARTNER_CENTER_TENANT_ID: ${{ secrets.PARTNER_CENTER_TENANT_ID }}
+          PARTNER_CENTER_SELLER_ID: ${{ secrets.PARTNER_CENTER_SELLER_ID }}
+          PARTNER_CENTER_CLIENT_ID: ${{ secrets.PARTNER_CENTER_CLIENT_ID }}
+          PARTNER_CENTER_CLIENT_SECRET: ${{ secrets.PARTNER_CENTER_CLIENT_SECRET }}
+        run: |
+          foreach ($name in 'PARTNER_CENTER_TENANT_ID','PARTNER_CENTER_SELLER_ID','PARTNER_CENTER_CLIENT_ID','PARTNER_CENTER_CLIENT_SECRET') {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+              throw "GitHub secret $name is not set. See docs/microsoft-store.md."
+            }
+          }
+
+          msstore reconfigure `
+            --tenantId $env:PARTNER_CENTER_TENANT_ID `
+            --sellerId $env:PARTNER_CENTER_SELLER_ID `
+            --clientId $env:PARTNER_CENTER_CLIENT_ID `
+            --clientSecret $env:PARTNER_CENTER_CLIENT_SECRET
+
+      - name: Publish package to Microsoft Store
+        shell: pwsh
+        env:
+          MSSTORE_APP_ID: ${{ vars.MSSTORE_APP_ID }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:MSSTORE_APP_ID)) {
+            throw "Repository variable MSSTORE_APP_ID is not set. See docs/microsoft-store.md."
+          }
+
+          msstore publish . `
+            --inputDirectory store-package `
+            --appId $env:MSSTORE_APP_ID

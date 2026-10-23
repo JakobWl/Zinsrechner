@@ -30,7 +30,36 @@ Before final submission, check the package identity values assigned by Partner C
 - `appx.publisher`
 - `appx.publisherDisplayName`
 
-The current config omits `appx.publisher` so electron-builder can generate a Store package without a local certificate. The Microsoft Store signs the uploaded package after certification.
+`appx.publisher` is set to the Partner Center publisher ID (`CN=2FB3D10A-81DA-44DA-AA5D-0E9816DC9FB2`) and the AppX is not Authenticode-signed locally. The Microsoft Store signs the uploaded package during certification.
+
+## Automated submission via GitHub Actions
+
+The `store-publish` job in `.github/workflows/release.yml` submits the AppX package with the
+[Microsoft Store Developer CLI](https://learn.microsoft.com/windows/apps/publish/msstore-dev-cli/overview) (`msstore`).
+It only runs on a manual `workflow_dispatch` run with `publish_to_store` enabled, and it is gated by the
+`microsoft-store` GitHub Environment (required reviewers), so a normal push to `main` never touches the Store.
+
+Required repository configuration:
+
+| Name | Type | Value |
+| --- | --- | --- |
+| `PARTNER_CENTER_TENANT_ID` | Secret | Microsoft Entra tenant ID of the Partner Center account |
+| `PARTNER_CENTER_SELLER_ID` | Secret | Partner Center seller ID |
+| `PARTNER_CENTER_CLIENT_ID` | Secret | Application (client) ID of the Entra app registration |
+| `PARTNER_CENTER_CLIENT_SECRET` | Secret | Client secret value of that app registration |
+| `MSSTORE_APP_ID` | Variable | Partner Center product ID of the app (for example `9NBLGGH...`) |
+| `microsoft-store` | Environment | Environment with required reviewers and optional deployment branch rule `main` |
+
+Notes:
+
+- The Store rejects packages whose version is not higher than the currently published one. Bump `version` in
+  `package.json` before re-running the job.
+- `npm run validate:store` is not part of this job: it verifies Authenticode signatures of the NSIS installer and
+  `win-unpacked`, neither of which exists in the Store submission flow (the Store signs the AppX itself).
+- For the first submission, publish manually in Partner Center. Automated submissions require the app to exist and
+  the Entra app to be linked to the Partner Center account (see the guide in the repository docs / chat).
+- `msstore publish` without `--noCommit` commits the submission, which sends it into certification. Add `--noCommit`
+  to only upload the package into a draft submission.
 
 ## GitHub release
 
