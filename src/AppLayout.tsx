@@ -1,4 +1,10 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import dayjs, { Dayjs } from "dayjs";
 import isLeapYear from "dayjs/plugin/isLeapYear";
 
@@ -16,6 +22,7 @@ import {
   Select,
   Space,
   Statistic,
+  Switch,
   Table,
   theme,
   Tooltip,
@@ -31,14 +38,28 @@ import {
   FileExcelOutlined,
   FilePdfOutlined,
   HistoryOutlined,
+  LaptopOutlined,
   LineChartOutlined,
   MoonOutlined,
   PlusOutlined,
   PrinterOutlined,
   SunOutlined,
   TableOutlined,
+  SyncOutlined,
 } from "@ant-design/icons";
 import { RangePickerProps } from "antd/lib/date-picker";
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title as ChartTitle,
+  Tooltip as ChartTooltip,
+  Legend,
+  Filler,
+} from "chart.js";
+import { Line } from "react-chartjs-2";
 import packageJson from "../package.json";
 import logoPng from "/logo.png";
 import {
@@ -53,6 +74,22 @@ import ForecastView, {
 import type { ForecastState } from "./components/ForecastView";
 
 dayjs.extend(isLeapYear);
+
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  ChartTitle,
+  ChartTooltip,
+  Legend,
+  Filler,
+);
+
+interface HistoryGroup {
+  name: string;
+  banks: string[];
+}
 
 interface KontoData {
   bankName: string;
@@ -83,6 +120,7 @@ interface HistoryRow {
   bankName: string;
   menge: number;
   prozent: number;
+  wachstum: number | null; // difference to previous rate at same bank
   ereignis: string; // e.g. "Eröffnung" / "Ablauf"
   aenderung: "up" | "down" | "none";
   /** Prognose-Zeile (aus `prognose.json`) – wird ausgegraut dargestellt. */
@@ -92,8 +130,10 @@ interface HistoryRow {
 /**
  * Build a chronologically sorted list of all events across all banks.
  * For every account we emit two events: "Eröffnung" at startDatum and
- * "Ablauf" at endDatum. The percentage change is computed per bank against
- * the previous event (increase = green/up, decrease = red/down).
+ * "Ablauf" at endDatum. The percentage change (up/down) is shown on
+ * "Eröffnung" events and compares the new account's rate against the
+ * previous account's rate at the same bank (i.e. from the last "Ablauf"
+ * to the new "Eröffnung").
  */
 function buildHistoryRows(data: KontoData[] | undefined): HistoryRow[] {
   if (!data || data.length === 0) return [];
@@ -130,21 +170,28 @@ function buildHistoryRows(data: KontoData[] | undefined): HistoryRow[] {
     return a.bankName.localeCompare(b.bankName);
   });
 
-  // Track the last known percent per bank to compute up/down change.
+  // Track the last known percent per bank to compute up/down on new accounts.
   const lastPercentByBank = new Map<string, number>();
   return events.map((e) => {
-    const prev = lastPercentByBank.get(e.bankName);
     let aenderung: HistoryRow["aenderung"] = "none";
-    if (prev !== undefined) {
-      if (e.prozent > prev) aenderung = "up";
-      else if (e.prozent < prev) aenderung = "down";
+    let wachstum: number | null = null;
+    if (e.ereignis === "Eröffnung") {
+      const prev = lastPercentByBank.get(e.bankName);
+      if (prev !== undefined) {
+        wachstum = e.prozent - prev;
+        if (e.prozent > prev) aenderung = "up";
+        else if (e.prozent < prev) aenderung = "down";
+      }
     }
-    lastPercentByBank.set(e.bankName, e.prozent);
+    if (e.ereignis === "Ablauf") {
+      lastPercentByBank.set(e.bankName, e.prozent);
+    }
     return {
       datum: e.datum.format("DD.MM.YYYY"),
       bankName: e.bankName,
       menge: e.menge,
       prozent: e.prozent,
+      wachstum,
       ereignis: e.ereignis,
       aenderung,
     };
@@ -166,6 +213,7 @@ function buildForecastHistoryRows(
     bankName: "Prognose",
     menge: row.nominal,
     prozent: row.ratePp,
+    wachstum: null,
     ereignis: `Prognose ${row.year} · Zinsen ${row.interest.toLocaleString(
       "de-DE",
       { minimumFractionDigits: 2, maximumFractionDigits: 2 },
@@ -176,10 +224,12 @@ function buildForecastHistoryRows(
 }
 
 export function AppLayout({
-  onToggleDarkMode,
+  onThemeModeChange,
+  themeMode,
   isDarkMode,
 }: {
-  onToggleDarkMode?: () => void;
+  onThemeModeChange?: (mode: "system" | "light" | "dark") => void;
+  themeMode?: "system" | "light" | "dark";
   isDarkMode?: boolean;
 }) {
   const {
@@ -188,13 +238,75 @@ export function AppLayout({
   const [data, setData] = useState<KontoData[]>([]);
   const [quartalsBeginn, setQuartalsBeginn] = useState<Dayjs | null>(null);
   const [quartalsEnde, setQuartalsEnde] = useState<Dayjs | null>(null);
-  const [tableScrollY, setTableScrollY] = useState(320);
+  const [tableScrollY, setTableScrollY] = useState(300);
   const [view, setView] = useState<"main" | "prognose">("main");
   const [forecast, setForecast] = useState<ForecastState | null>(null);
   const [forecastLoaded, setForecastLoaded] = useState(false);
   const hasLoadedData = useRef(false);
   const hasLoadedForecast = useRef(false);
+  const hasLoadedGroups = useRef(false);
   const tableRegionRef = useRef<HTMLDivElement>(null);
+  const [historyGroups, setHistoryGroups] = useState<HistoryGroup[]>([]);
+  const [groupConfigOpen, setGroupConfigOpen] = useState(false);
+  const [newGroupName, setNewGroupName] = useState("");
+  const [updateChecking, setUpdateChecking] = useState(false);
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [updateInfo, setUpdateInfo] = useState<{
+    store?: boolean;
+    status: string;
+    version?: string;
+    message?: string;
+  } | null>(null);
+
+  // Shared, rAF-throttled resize handling. Both the responsive "isNarrow"
+  // flag and the table scroll-height computation are derived from the same
+  // throttled callback so a window resize no longer fires dozens of
+  // synchronous setStates per second (which was the main source of the
+  // laggy resize feeling and the slow Diagramm/Tabelle switch, because each
+  // intermediate setState re-rendered this entire 2000-line component and
+  // recomputed every interest aggregate).
+  const rafId = useRef<number | null>(null);
+  const scheduleResize = useCallback(() => {
+    if (rafId.current != null) return;
+    rafId.current = window.requestAnimationFrame(() => {
+      rafId.current = null;
+      const narrow = window.innerWidth <= 768;
+
+      const el = tableRegionRef.current;
+      if (!el) return;
+      if (narrow) {
+        setTableScrollY((prev) => (prev === 500 ? prev : 500));
+        return;
+      }
+      // Measure the real available height of the table region (the flex
+      // item that wraps the Table) instead of guessing a fixed offset.
+      // The CSS layout chain (app-content -> table-card -> ant-card-body
+      // -> table-region) already stretches this box to fill whatever
+      // vertical space is left, so its clientHeight is exactly the height
+      // the table may occupy. We then subtract the non-scrolling parts
+      // that live inside the same region (the fixed header + fixed summary
+      // footer) so the scrollable body fills the region without an empty
+      // gap or a double scrollbar. Falls back to the viewport-based
+      // estimate when the DOM is not laid out yet (clientHeight === 0,
+      // e.g. first paint).
+      let y: number;
+      const regionH = el.clientHeight;
+      if (regionH > 0) {
+        const thead = el.querySelector<HTMLElement>(".ant-table-thead");
+        const summary = el.querySelector<HTMLElement>(
+          ".ant-table-summary",
+        );
+        const overhead =
+          (thead ? thead.getBoundingClientRect().height : 0) +
+          (summary ? summary.getBoundingClientRect().height : 0);
+        y = Math.max(150, Math.round(regionH - overhead) - 1);
+      } else {
+        const top = el.getBoundingClientRect().top;
+        y = Math.max(150, window.innerHeight - top - 154);
+      }
+      setTableScrollY((prev) => (prev === y ? prev : y));
+    });
+  }, []);
   const [form] = Form.useForm<KontoFormValues>();
 
   useEffect(() => {
@@ -244,6 +356,23 @@ export function AppLayout({
       cancelled = true;
     };
   }, []);
+
+  // Load history groups
+  useEffect(() => {
+    if (!window.ipcRenderer) return;
+    window.ipcRenderer.invoke("load-history-groups").then((raw: string) => {
+      try {
+        if (raw) setHistoryGroups(JSON.parse(raw));
+      } catch { /* ignore */ }
+      hasLoadedGroups.current = true;
+    });
+  }, []);
+
+  // Save history groups when changed
+  useEffect(() => {
+    if (!hasLoadedGroups.current || !window.ipcRenderer) return;
+    window.ipcRenderer.send("save-history-groups", JSON.stringify(historyGroups, null, 2));
+  }, [historyGroups]);
 
   useEffect(() => {
     if (!hasLoadedData.current || !window.ipcRenderer) return;
@@ -299,32 +428,57 @@ export function AppLayout({
     window.ipcRenderer.send("save-forecast", JSON.stringify(forecast, null, 2));
   }, [forecast]);
 
+  // "today" for the "bald abgelaufen" warning. Recomputed at most every few
+  // minutes instead of on every render so rowClassName stays referentially
+  // stable across resize re-renders.
+  const nowMemo = useMemo(() => dayjs(), []);
+  const warningThreshold = useMemo(() => nowMemo.add(1, "month"), [nowMemo]);
+  const rowClassName = useCallback(
+    (record: KontoData) =>
+      record.endDatum.isBefore(warningThreshold) ? "row-warning" : "",
+    [warningThreshold],
+  );
+
   useEffect(() => {
-    const tableRegion = tableRegionRef.current;
-    if (!tableRegion) return;
-
-    const updateTableHeight = () => {
-      const regionTop = tableRegion.getBoundingClientRect().top;
-      const pageBottomPadding = window.innerWidth <= 720 ? 16 : 24;
-      const availableRegionHeight =
-        window.innerWidth <= 1080
-          ? Math.min(Math.max(window.innerHeight * 0.6, 360), 560)
-          : window.innerHeight - regionTop - pageBottomPadding;
-
-      setTableScrollY(Math.max(240, Math.floor(availableRegionHeight - 96)));
-    };
-
-    updateTableHeight();
-    const observer = new ResizeObserver(updateTableHeight);
-    observer.observe(document.body);
-    observer.observe(tableRegion);
-    window.addEventListener("resize", updateTableHeight);
-
+    scheduleResize();
+    window.addEventListener("resize", scheduleResize);
+    const ro = new ResizeObserver(scheduleResize);
+    if (tableRegionRef.current) ro.observe(tableRegionRef.current);
     return () => {
-      observer.disconnect();
-      window.removeEventListener("resize", updateTableHeight);
+      window.removeEventListener("resize", scheduleResize);
+      ro.disconnect();
+      if (rafId.current != null) window.cancelAnimationFrame(rafId.current);
     };
-  }, []);
+  }, [scheduleResize]);
+
+  // The .table-region is a flex item stretched by its parent, so its own
+  // box size does NOT change when rows are added/removed and the
+  // ResizeObserver above never fires for a data change. Without re-measuring
+  // the scroll height stayed at the initial 300px fallback (the fallback
+  // formula window.innerHeight - top - 154 happens to evaluate to ~300 for
+  // a typical window when the first rAF runs before the flex layout has
+  // resolved regionH), leaving the body permanently clipped at 300px even
+  // though the region is much taller. Re-measure whenever the row count
+  // changes - by then the async "load-data" has resolved and the flex chain
+  // has settled, so regionH > 0 and the real available height is used.
+  useEffect(() => {
+    scheduleResize();
+    const id = window.requestAnimationFrame(() => scheduleResize());
+    return () => window.cancelAnimationFrame(id);
+  }, [data, scheduleResize]);
+
+  // Belt-and-suspenders: the very first rAF after mount can run before the
+  // flex layout has given .table-region a non-zero height (so the fallback
+  // kicks in). Re-measure a couple of times shortly after mount to catch
+  // the settled layout for the empty-data case too.
+  useEffect(() => {
+    const t1 = window.setTimeout(scheduleResize, 50);
+    const t2 = window.setTimeout(scheduleResize, 250);
+    return () => {
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+    };
+  }, [scheduleResize]);
 
   const handleAddKonto = (values: KontoFormValues) => {
     const [startDatum, endDatum] = values.dateRange;
@@ -353,30 +507,126 @@ export function AppLayout({
     );
   };
 
-  const calculateTotalInterest = () => {
-    const total = data.reduce((total, entry) => {
-      return total + calculateInterest(entry, entry.startDatum, entry.endDatum);
-    }, 0);
-    return Math.round(total * 100) / 100;
-  };
+  // Stable single-row calculators (no per-render allocation) used by the
+  // table columns, summary cells and print/export routines.
+  const calculateSingleInterest = useCallback(
+    (entry: KontoData) => calculateInterest(entry, entry.startDatum, entry.endDatum),
+    [],
+  );
 
-  const calculateSingleInterest = (entry: KontoData) => {
-    return calculateInterest(entry, entry.startDatum, entry.endDatum);
-  };
+  const calculateQuarterlySingleInterest = useCallback(
+    (entry: KontoData) => {
+      if (!quartalsBeginn || !quartalsEnde) return 0;
+      return calculateQuarterlyInterest(entry, quartalsBeginn, quartalsEnde);
+    },
+    [quartalsBeginn, quartalsEnde],
+  );
 
-  const calculateQuarterlyTotalInterest = () => {
+  // Aggregate statistics memoized so a resize re-render (which now only
+  // touches isNarrow/tableScrollY) never recomputes the interest sums, and
+  // so the Statistic cards + Table.Summary receive stable numeric props.
+  const totals = useMemo(() => {
+    let totalNominal = 0;
+    let totalInterest = 0;
+    let totalPaid = 0;
+    for (const entry of data) {
+      totalNominal += entry.nominal;
+      totalInterest += calculateInterest(entry, entry.startDatum, entry.endDatum);
+      totalPaid += entry.verbuchteRueckstellung || 0;
+    }
+    return {
+      nominal: totalNominal,
+      interest: Math.round(totalInterest * 100) / 100,
+      paid: totalPaid,
+    };
+  }, [data]);
+
+  const quarterlyTotal = useMemo(() => {
     if (!quartalsBeginn || !quartalsEnde) return 0;
-
-    const total = data.reduce((total, entry) => {
-      return total + calculateQuarterlySingleInterest(entry);
-    }, 0);
+    let total = 0;
+    for (const entry of data) {
+      total += calculateQuarterlyInterest(entry, quartalsBeginn, quartalsEnde);
+    }
     return Math.round(total * 100) / 100;
-  };
+  }, [data, quartalsBeginn, quartalsEnde]);
 
-  const calculateQuarterlySingleInterest = (entry: KontoData) => {
-    if (!quartalsBeginn || !quartalsEnde) return 0;
-    return calculateQuarterlyInterest(entry, quartalsBeginn, quartalsEnde);
-  };
+  // Stable references consumed by Statistic cards / summary cells.
+  const calculateTotalInterest = useCallback(() => totals.interest, [totals]);
+  const calculateQuarterlyTotalInterest = useCallback(
+    () => quarterlyTotal,
+    [quarterlyTotal],
+  );
+
+  // Per-row accumulated interest (kumuliert bis Stichtag). Kept as a stable
+  // callback so the table columns / summary do not re-create render fns
+  // every render; it only changes identity when the Stichtag changes.
+  const calculateAccumulatedInterest = useCallback(
+    (entry: KontoData) => {
+      if (!quartalsEnde) return 0;
+      if (quartalsEnde.isBefore(entry.startDatum)) return 0;
+      if (quartalsEnde.isAfter(entry.endDatum)) {
+        return calculateInterest(entry, entry.startDatum, entry.endDatum);
+      }
+      return calculateInterest(entry, entry.startDatum, quartalsEnde);
+    },
+    [quartalsEnde],
+  );
+
+  // Memoized aggregate for the kumulierte Zinsen / Quartalszinsen columns
+  // used in the Table.Summary footer, so resize re-renders stay cheap.
+  const summaryAggregates = useMemo(() => {
+    let accumulated = 0;
+    let quarterly = 0;
+    let reserve = 0;
+    for (const entry of data) {
+      const acc = calculateAccumulatedInterest(entry);
+      accumulated += acc;
+      const q = calculateQuarterlySingleInterest(entry);
+      quarterly += q;
+      reserve += q - (entry.verbuchteRueckstellung || 0);
+    }
+    return { accumulated, quarterly, reserve, paid: totals.paid };
+  }, [data, calculateAccumulatedInterest, calculateQuarterlySingleInterest, totals.paid]);
+
+  // Memoized summary node for the Anlagen table footer. Pre-formats the
+  // memoized aggregates once and keeps the same element reference across
+  // resize re-renders so the Table does not re-render its summary block.
+  const tableSummary = useMemo(() => {
+    const f2 = (v: number) =>
+      v.toLocaleString("de-DE", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      });
+    return (
+      <Table.Summary fixed>
+        <Table.Summary.Row style={{ fontWeight: "bold" }}>
+          <Table.Summary.Cell index={0}>Summe</Table.Summary.Cell>
+          <Table.Summary.Cell index={1} />
+          <Table.Summary.Cell index={2} />
+          <Table.Summary.Cell index={3} />
+          <Table.Summary.Cell index={4} />
+          <Table.Summary.Cell index={5} />
+          <Table.Summary.Cell index={6}>{f2(totals.nominal)}</Table.Summary.Cell>
+          <Table.Summary.Cell align="end" index={7}>
+            {f2(totals.interest)}
+          </Table.Summary.Cell>
+          <Table.Summary.Cell align="end" index={8}>
+            {quartalsEnde ? f2(summaryAggregates.accumulated) : "0,00"}
+          </Table.Summary.Cell>
+          <Table.Summary.Cell align="end" index={9}>
+            {quartalsBeginn && quartalsEnde ? f2(summaryAggregates.quarterly) : "0,00"}
+          </Table.Summary.Cell>
+          <Table.Summary.Cell align="end" index={10}>
+            {f2(summaryAggregates.paid)}
+          </Table.Summary.Cell>
+          <Table.Summary.Cell align="end" index={11}>
+            {f2(summaryAggregates.reserve)}
+          </Table.Summary.Cell>
+          <Table.Summary.Cell index={12} />
+        </Table.Summary.Row>
+      </Table.Summary>
+    );
+  }, [totals, summaryAggregates, quartalsBeginn, quartalsEnde]);
 
   const handleQuartalsRangeChange: RangePickerProps["onChange"] = (
     dates: [start: Dayjs | null, end: Dayjs | null] | null,
@@ -390,14 +640,102 @@ export function AppLayout({
     }
   };
 
-  const calculateAccumulatedInterest = (entry: KontoData) => {
-    if (!quartalsEnde) return 0;
-    if (quartalsEnde.isBefore(entry.startDatum)) return 0;
-    if (quartalsEnde.isAfter(entry.endDatum)) {
-      return calculateInterest(entry, entry.startDatum, entry.endDatum);
+  const handleCheckForUpdates = async () => {
+    if (!window.ipcRenderer || updateChecking) return;
+    setUpdateChecking(true);
+    setUpdateInfo(null);
+    try {
+      const result = await window.ipcRenderer.invoke("check-for-updates");
+      if (result?.store) {
+        // Microsoft Store build: the Store updates page was opened.
+        setUpdateInfo(result);
+        message.success(
+          "Microsoft Store wurde geöffnet. Laden Sie dort die neueste Version herunter.",
+        );
+      } else if (result?.status === "up-to-date") {
+        setUpdateInfo(result);
+        message.success("Zinsrechner ist bereits auf dem neuesten Stand.");
+      } else if (result?.status === "available") {
+        setUpdateInfo(result);
+        message.info(
+          `Update auf Version ${result.version} wird heruntergeladen…`,
+        );
+      } else if (result?.status === "error") {
+        setUpdateInfo(result);
+        message.error(
+          `Update-Prüfung fehlgeschlagen: ${result.message ?? "unbekannter Fehler"}`,
+        );
+      }
+    } catch (error) {
+      message.error("Update-Prüfung fehlgeschlagen.");
+      console.error(error);
+    } finally {
+      setUpdateChecking(false);
     }
-    return calculateInterest(entry, entry.startDatum, quartalsEnde);
   };
+
+  const handleInstallUpdate = async () => {
+    if (!window.ipcRenderer) return;
+    const result = await window.ipcRenderer.invoke("install-update");
+    if (!result?.ok) message.error("Update konnte nicht installiert werden.");
+  };
+
+  // Check once on startup (and then hourly) whether a newer version is
+  // published. The "Aktualisieren" button is only rendered when an update
+  // is actually available, so the toolbar stays clean otherwise.
+  useEffect(() => {
+    if (!window.ipcRenderer) return;
+    let cancelled = false;
+    const check = () =>
+      window.ipcRenderer
+        .invoke("check-update-available")
+        .then((r: { available: boolean; latest?: string }) => {
+          if (!cancelled) setUpdateAvailable(!!r?.available);
+        })
+        .catch(() => {});
+    check();
+    const id = window.setInterval(check, 60 * 60 * 1000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, []);
+
+  // Listen to live updater progress / status events from the main process.
+  useEffect(() => {
+    if (!window.ipcRenderer) return;
+    const handler = (
+      _e: import("electron").IpcRendererEvent,
+      payload: {
+        status: string;
+        version?: string;
+        message?: string;
+        percent?: number;
+      },
+    ) => {
+      if (payload.status === "downloaded") {
+        setUpdateInfo({ status: "downloaded", version: payload.version });
+        message.success("Update heruntergeladen. Jetzt installieren?");
+      } else if (payload.status === "up-to-date") {
+        setUpdateInfo({ status: "up-to-date" });
+      } else if (payload.status === "downloading") {
+        setUpdateInfo({
+          status: "downloading",
+          version: payload.version,
+          message: payload.percent != null ? `${payload.percent}%` : undefined,
+        });
+      } else if (payload.status === "error") {
+        setUpdateInfo({ status: "error", message: payload.message });
+        message.error(
+          `Update fehlgeschlagen: ${payload.message ?? "unbekannter Fehler"}`,
+        );
+      }
+    };
+    window.ipcRenderer.on("update-status", handler);
+    return () => {
+      window.ipcRenderer?.off?.("update-status", handler);
+    };
+  }, []);
 
   const handlePrint = () => {
     if (data.length === 0 || !quartalsBeginn || !quartalsEnde) return;
@@ -809,7 +1147,7 @@ export function AppLayout({
               </tr>
             </table>
           </div>
-      
+
           <!-- Force new page for Inaktive Konten -->
           <div class="page-break"></div>
           <h2>Inaktive Konten</h2>
@@ -879,7 +1217,7 @@ export function AppLayout({
               </tr>
             </table>
           </div>
-      
+
           <!-- Force new page for Alle Konten Zusammenfassung -->
           <div class="page-break"></div>
           <div class="summary">
@@ -951,6 +1289,7 @@ export function AppLayout({
   };
 
   const [historyPreviewOpen, setHistoryPreviewOpen] = useState(false);
+  const [historyShowChart, setHistoryShowChart] = useState(false);
 
   const handleExportHistoryPdf = async () => {
     const rows = buildHistoryRows(data);
@@ -958,7 +1297,7 @@ export function AppLayout({
       message.warning("Keine Daten zum Exportieren vorhanden.");
       return;
     }
-    const result = await window.ipcRenderer.invoke("export-history-pdf", rows);
+    const result = await window.ipcRenderer.invoke("export-history-pdf", rows, historyGroups);
     if (result?.saved) {
       message.success(`Historie als PDF gespeichert: ${result.path}`);
     }
@@ -973,6 +1312,7 @@ export function AppLayout({
     const result = await window.ipcRenderer.invoke(
       "export-history-excel",
       rows,
+      historyGroups,
     );
     if (result?.saved) {
       message.success(`Historie als Excel gespeichert: ${result.path}`);
@@ -1002,13 +1342,331 @@ export function AppLayout({
       onClick: handleExportHistoryExcel,
       disabled: data.length === 0,
     },
+    { type: "divider" },
+    {
+      key: "groups",
+      icon: <TableOutlined />,
+      label: "Gruppen konfigurieren",
+      onClick: () => setGroupConfigOpen(true),
+    },
   ];
 
-  // Historie: reale Ereignisse zuerst, Prognose-Zeilen hinten angehängt.
-  const historyPreviewRows = [
-    ...buildHistoryRows(data),
-    ...buildForecastHistoryRows(forecast),
-  ];
+  const historyPreviewRows = useMemo(() => {
+    const forecastRows = buildForecastHistoryRows(forecast);
+    const rows = buildHistoryRows(data);
+    if (rows.length === 0) return forecastRows;
+    const today = dayjs();
+    const parseDatum = (d: string) => dayjs(d, "DD.MM.YYYY");
+    // Find insertion index: after last row with datum <= today
+    let insertIdx = -1;
+    for (let i = 0; i < rows.length; i++) {
+      if (parseDatum(rows[i].datum).isBefore(today) || parseDatum(rows[i].datum).isSame(today, "day")) {
+        insertIdx = i;
+      }
+    }
+    // Compute running sum up to insertIdx
+    let sum = 0;
+    for (let i = 0; i <= insertIdx; i++) {
+      if (rows[i].ereignis === "Eröffnung") sum += rows[i].menge;
+      if (rows[i].ereignis === "Ablauf") sum -= rows[i].menge;
+    }
+    if (insertIdx >= 0) {
+      const todayRow: HistoryRow = {
+        datum: today.format("DD.MM.YYYY"),
+        bankName: "⟶ Summe heute",
+        menge: sum,
+        prozent: 0,
+        wachstum: null,
+        ereignis: "Summe",
+        aenderung: "none",
+      };
+      const result = [...rows];
+      result.splice(insertIdx + 1, 0, todayRow);
+      return [...result, ...forecastRows];
+    }
+    return [...rows, ...forecastRows];
+  }, [data, forecast]);
+  // Memoize the history chart config so merely toggling the
+  // Diagramm/Tabelle switch does NOT recompute running totals nor
+  // create new lineData/options/plugin objects (which would force
+  // Chart.js to fully destroy and recreate the chart = visible lag).
+  // Only data-affecting dependencies invalidate the memo.
+  const historyChart = useMemo(() => {
+    const dates = [...new Set(historyPreviewRows.map((r) => r.datum))];
+              const runningTotals: Record<string, number[]> = {};
+
+              // Always compute "Gesamt"
+              runningTotals["Gesamt"] = [];
+              let totalSum = 0;
+              dates.forEach((d) => {
+                const rowsForDate = historyPreviewRows.filter((r) => r.datum === d);
+                rowsForDate.forEach((r) => {
+                  if (r.ereignis === "Eröffnung") totalSum += r.menge;
+                  if (r.ereignis === "Ablauf") totalSum -= r.menge;
+                });
+                runningTotals["Gesamt"].push(totalSum);
+              });
+
+              // Per group
+              if (historyGroups.length > 0) {
+                historyGroups.forEach((g) => {
+                  runningTotals[g.name] = [];
+                  let sum = 0;
+                  dates.forEach((d) => {
+                    const rowsForDate = historyPreviewRows.filter((r) => r.datum === d);
+                    rowsForDate.forEach((r) => {
+                      if (g.banks.includes(r.bankName)) {
+                        if (r.ereignis === "Eröffnung") sum += r.menge;
+                        if (r.ereignis === "Ablauf") sum -= r.menge;
+                      }
+                    });
+                    runningTotals[g.name].push(sum);
+                  });
+                });
+              }
+
+              const colors = [
+                "#333333", "#1677ff", "#52c41a", "#faad14", "#f5222d", "#722ed1",
+                "#13c2c2", "#eb2f96", "#fa8c16",
+              ];
+
+              // When groups are configured, render one stacked area per group so
+          // the areas stack on top of each other and visually sum up to the
+          // total. Without groups we keep the single "Gesamt" filled area.
+          const hasGroups = historyGroups.length > 0;
+              const datasetNames = hasGroups
+                ? historyGroups.map((g) => g.name)
+                : ["Gesamt"];
+
+              // When groups are configured the diagram is additive by area:
+              // every group is drawn as a stacked area on top of the previous
+              // one, so the areas sum up to the total. The "Gesamt" line is then
+              // drawn as the border on top of the last stacked group: it is a
+              // stacked line-only dataset whose value is the residual between the
+              // sum of the group running totals and the true overall total, so its
+              // plotted position lands exactly on the true Gesamt value. The area
+              // beneath that border line is the additive sum of the group colors
+              // (two groups => filled by two colors). Without groups we keep the
+              // single "Gesamt" filled area.
+              const groupSumAt = (idx: number) =>
+                hasGroups
+                  ? historyGroups.reduce(
+                      (acc, g) => acc + (runningTotals[g.name]?.[idx] ?? 0),
+                      0,
+                    )
+                  : 0;
+              const gesamtResidual = runningTotals["Gesamt"].map((v, idx) =>
+                Math.max(0, v - groupSumAt(idx)),
+              );
+
+              const lineData = {
+                labels: dates,
+                datasets: [
+                  ...datasetNames.map((name, i) => ({
+                    label: name,
+                    data: runningTotals[name],
+                    borderColor: colors[i % colors.length],
+                    backgroundColor: colors[i % colors.length] + "44",
+                    fill: hasGroups ? ("stack" as const) : true,
+                    tension: 0.3,
+                    borderWidth: 2,
+                  })),
+                  // The Gesamt summary line: a stacked, line-only dataset whose
+                  // value is the residual up to the true total. Because it is
+                  // stacked it plots at the cumulative top (= true Gesamt), i.e. it
+                  // is drawn as the border on top of the last stacked group. The
+                  // area beneath it stays filled by the group colors (additive by
+                  // area); this dataset only adds the top border line. The residual
+                  // is 0 when the groups cover every bank, so the line then sits
+                  // flush on top of the stacked group areas.
+                  ...(hasGroups
+                    ? [{
+                        // Join the shared stack so this dataset's line is drawn at
+                        // the cumulative top (= sum of all group running totals +
+                        // residual = true Gesamt), i.e. the top border line above
+                        // the last group. fill: "stack" keeps it in the stack
+                        // (line stacks on top of the previous dataset); the
+                        // residual band between the last group and the Gesamt line
+                        // is effectively invisible because backgroundColor is
+                        // transparent and the residual is 0 when the groups cover
+                        // every bank.
+                        label: "Gesamt",
+                        data: gesamtResidual,
+                        borderColor: "#000000",
+                        backgroundColor: "transparent",
+                        fill: "stack" as const,
+                        tension: 0.3,
+                        borderWidth: 3,
+                        borderDash: [] as number[],
+                      }]
+                    : []),
+                ],
+              };
+
+              // Find today's index in dates for vertical line
+              const todayStr = dayjs().format("DD.MM.YYYY");
+              const todayIndex = dates.indexOf(todayStr);
+              // Find the closest date <= today if exact match not found
+              const todayParsed = dayjs();
+              let todayLineIndex = todayIndex;
+              if (todayLineIndex === -1) {
+                for (let i = dates.length - 1; i >= 0; i--) {
+                  const d = dayjs(dates[i], "DD.MM.YYYY");
+                  if (d.isBefore(todayParsed) || d.isSame(todayParsed, "day")) {
+                    todayLineIndex = i;
+                    break;
+                  }
+                }
+              }
+              const todayGesamtValue = todayLineIndex >= 0 ? runningTotals["Gesamt"][todayLineIndex] : null;
+
+              const todayLinePlugin = {
+                id: "todayLine",
+                afterDraw(chart: any) {
+                  if (todayLineIndex < 0) return;
+                  const xScale = chart.scales.x;
+                  const yScale = chart.scales.y;
+                  const x = xScale.getPixelForValue(todayLineIndex);
+                  const ctx = chart.ctx;
+                  ctx.save();
+                  ctx.beginPath();
+                  ctx.moveTo(x, yScale.top);
+                  ctx.lineTo(x, yScale.bottom);
+                  ctx.lineWidth = 2;
+                  ctx.strokeStyle = "#1677ff";
+                  ctx.setLineDash([6, 4]);
+                  ctx.stroke();
+                  ctx.setLineDash([]);
+                  // Label
+                  if (todayGesamtValue !== null) {
+                    const label = `Heute: ${todayGesamtValue.toLocaleString("de-DE")} €`;
+                    ctx.fillStyle = "#1677ff";
+                    ctx.font = "bold 12px Arial";
+                    ctx.textAlign = "left";
+                    ctx.fillText(label, x + 4, yScale.top + 16);
+                  }
+                  ctx.restore();
+                },
+              };
+
+              const lineOptions = {
+                responsive: true,
+                interaction: {
+                  // Hover snaps to the nearest x-index (vertical line through the
+                  // cursor) so hovering any area surfaces the nearest point in the
+                  // vertical, showing every stacked group plus the Gesamt summary.
+                  mode: "index" as const,
+                  intersect: false,
+                },
+                plugins: {
+                  title: { display: true, text: "Veranlagungsverlauf (kumulativ)" },
+                  legend: { position: "top" as const },
+                  tooltip: {
+                    mode: "index" as const,
+                    intersect: false,
+                    callbacks: {
+                      label: (ctx: any) => {
+                        const name = ctx.dataset.label ?? "";
+                        // The Gesamt dataset carries only the residual so it
+                        // stacks up to the true total; for the tooltip show the
+                        // real Gesamt value, not the residual.
+                        const val =
+                          name === "Gesamt"
+                            ? (runningTotals["Gesamt"][ctx.dataIndex] ?? 0)
+                            : Number(ctx.parsed.y);
+                        return `${name}: ${val.toLocaleString("de-DE")} �`;
+                      },
+                    },
+                  },
+                },
+                scales: {
+                  y: {
+                    beginAtZero: true,
+                stacked: hasGroups,
+                    ticks: {
+                      callback: (v: unknown) =>
+                        Number(v).toLocaleString("de-DE") + " €",
+                    },
+                  },
+                },
+              };
+    return { lineData, lineOptions, plugins: [todayLinePlugin] };
+  }, [historyPreviewRows, historyGroups]);
+
+  // Memoized columns for the Historie table so toggling the
+  // Diagramm/Tabelle switch does not rebuild the columns array (which
+  // would otherwise force the Antd Table to re-diff every cell).
+  const historyColumns = useMemo(
+    () => [
+      {
+        title: "Datum",
+        dataIndex: "datum",
+        key: "datum",
+        width: 110,
+      },
+      {
+        title: "Bankname",
+        dataIndex: "bankName",
+        key: "bankName",
+      },
+      {
+        title: "Veranlagung (€)",
+        key: "veranlagung-group",
+        children: [
+          ...(historyGroups.length > 0
+            ? historyGroups.map((group) => ({
+                title: group.name,
+                key: `veranlagung-${group.name}`,
+                align: "right" as const,
+                width: 160,
+                render: (_: unknown, record: HistoryRow) =>
+                  record.ereignis === "Summe"
+                    ? record.menge.toLocaleString("de-DE", {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })
+                    : record.ereignis === "Eröffnung" &&
+                      group.banks.includes(record.bankName)
+                      ? record.menge.toLocaleString("de-DE", {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })
+                      : "",
+              }))
+            : [
+                {
+                  title: "Betrag",
+                  key: "veranlagung",
+                  align: "right" as const,
+                  width: 160,
+                  render: (_: unknown, record: HistoryRow) =>
+                    record.ereignis === "Eröffnung" || record.ereignis === "Summe"
+                      ? record.menge.toLocaleString("de-DE", {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })
+                      : "",
+                },
+              ]),
+          {
+            title: "Ablauf",
+            key: "ablauf",
+            align: "right" as const,
+            width: 160,
+            onCell: () => ({ style: { backgroundColor: "rgba(0,0,0,0.04)" } }),
+            render: (_: unknown, record: HistoryRow) =>
+              record.ereignis === "Ablauf"
+                ? record.menge.toLocaleString("de-DE", {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })
+                : "",
+          },
+        ],
+      },
+    ],
+    [historyGroups],
+  );
 
   return (
     <Layout className="layout" data-theme={isDarkMode ? "dark" : "light"}>
@@ -1043,29 +1701,75 @@ export function AppLayout({
               Prognose
             </Button>
           </Tooltip>
-          <Dropdown menu={{ items: historyMenuItems }} placement="bottomRight">
-            <Tooltip title="Chronologische Historie aller Banken">
+          {(updateAvailable ||
+            updateInfo?.status === "downloaded" ||
+            updateInfo?.status === "downloading") && (
+            <Tooltip
+              title={
+                updateInfo?.status === "downloaded"
+                  ? "Update installieren und neu starten"
+                  : updateInfo?.status === "downloading"
+                    ? `Update wird heruntergeladen${updateInfo.message ? ` (${updateInfo.message})` : ""}…`
+                    : "Nach Update suchen (Microsoft Store)"
+              }
+            >
               <Button
                 type="text"
-                aria-label="Chronologische Historie aller Banken öffnen"
-                icon={<HistoryOutlined />}
+                aria-label="Aktualisieren"
+                icon={
+                  updateChecking || updateInfo?.status === "downloading" ? (
+                    <SyncOutlined spin />
+                  ) : (
+                    <SyncOutlined />
+                  )
+                }
+                onClick={
+                  updateInfo?.status === "downloaded"
+                    ? handleInstallUpdate
+                    : handleCheckForUpdates
+                }
               >
-                Historie
+                {updateInfo?.status === "downloaded"
+                  ? "Installieren"
+                  : "Aktualisieren"}
               </Button>
             </Tooltip>
-          </Dropdown>
-          <Tooltip title="Theme wechseln">
+          )}
+          <Dropdown menu={{ items: historyMenuItems }} placement="bottomRight">
             <Button
               type="text"
-              aria-label={
-                isDarkMode
-                  ? "Helles Theme aktivieren"
-                  : "Dunkles Theme aktivieren"
-              }
-              icon={isDarkMode ? <SunOutlined /> : <MoonOutlined />}
-              onClick={onToggleDarkMode}
-            />
-          </Tooltip>
+              aria-label="Chronologische Historie aller Banken öffnen"
+              icon={<HistoryOutlined />}
+            >
+              Historie
+            </Button>
+          </Dropdown>
+          <Space.Compact size="small">
+              <Tooltip title="Hell">
+                <Button
+                  type={themeMode === "light" ? "primary" : "text"}
+                  icon={<SunOutlined />}
+                  onClick={() => onThemeModeChange?.("light")}
+                  aria-label="Helles Theme"
+                />
+              </Tooltip>
+              <Tooltip title="System">
+                <Button
+                  type={themeMode === "system" ? "primary" : "text"}
+                  icon={<LaptopOutlined />}
+                  onClick={() => onThemeModeChange?.("system")}
+                  aria-label="System Theme"
+                />
+              </Tooltip>
+              <Tooltip title="Dunkel">
+                <Button
+                  type={themeMode === "dark" ? "primary" : "text"}
+                  icon={<MoonOutlined />}
+                  onClick={() => onThemeModeChange?.("dark")}
+                  aria-label="Dunkles Theme"
+                />
+              </Tooltip>
+            </Space.Compact>
         </div>
       </Layout.Header>
 
@@ -1157,7 +1861,7 @@ export function AppLayout({
                     min={0}
                     step={0.01}
                     aria-label="Zinssatz in Prozent"
-                    addonAfter="%"
+                    suffix="%"
                     decimalSeparator=","
                   />
                 </Form.Item>
@@ -1176,7 +1880,7 @@ export function AppLayout({
                     min={0}
                     step={1000}
                     aria-label="Nominalbetrag in Euro"
-                    addonAfter="€"
+                    suffix="€"
                     decimalSeparator=","
                   />
                 </Form.Item>
@@ -1224,33 +1928,30 @@ export function AppLayout({
           {view === "main" && (
             <>
               <div className="stat-grid">
-                <Card className="stat-card">
-                  <Statistic title="Banken" value={data.length} />
-                </Card>
-            <Card className="stat-card">
+                <Card className="stat-card" size="small">
               <Statistic
                 title="Gesamtnominal (€)"
-                value={data.reduce((sum, e) => sum + e.nominal, 0)}
+                value={totals.nominal}
                 precision={2}
               />
             </Card>
-            <Card className="stat-card">
+            <Card className="stat-card" size="small">
               <Statistic
                 title="Gesamtzinsen (€)"
-                value={calculateTotalInterest()}
+                value={totals.interest}
                 precision={2}
               />
             </Card>
-            <Card className="stat-card">
+            <Card className="stat-card" size="small">
               <Statistic
                 title="Quartalszinsen (€)"
-                value={calculateQuarterlyTotalInterest()}
+                value={quarterlyTotal}
                 precision={2}
               />
             </Card>
           </div>
 
-          <Card className="control-card" title="Quartalsauswertung">
+          <Card className="control-card" size="small" title="Quartalsauswertung">
             <div className="control-panel">
               <Form layout="vertical" className="quarter-form">
                 <Form.Item label="Quartalszeitraum" className="quarter-range">
@@ -1269,7 +1970,7 @@ export function AppLayout({
               </Form>
               <Statistic
                 title="Quartalszinsen"
-                value={calculateQuarterlyTotalInterest()}
+                value={quarterlyTotal}
                 precision={2}
                 suffix="€"
               />
@@ -1317,115 +2018,16 @@ export function AppLayout({
               <Table
                 className="table"
                 dataSource={data}
-                rowKey={(record, index) =>
-                  `${record.bankName}-${record.kontoNumber}-${index}`
+                rowKey={(record) =>
+                  `${record.bankName}-${record.kontoNumber}-${record.startDatum.toISOString()}`
                 }
                 pagination={false}
                 size="middle"
                 bordered
                 scroll={{ x: "max-content", y: tableScrollY }}
                 locale={{ emptyText: "Keine Anlagen erfasst" }}
-                rowClassName={(record) => {
-                  const now = dayjs();
-                  return record.endDatum.isBefore(now.add(1, "month"))
-                    ? "row-warning"
-                    : "";
-                }}
-                summary={() => (
-                  <Table.Summary fixed>
-                    <Table.Summary.Row style={{ fontWeight: "bold" }}>
-                      <Table.Summary.Cell index={0}>Summe</Table.Summary.Cell>
-                      <Table.Summary.Cell index={1} />
-                      <Table.Summary.Cell index={2} />
-                      <Table.Summary.Cell index={3} />
-                      <Table.Summary.Cell index={4} />
-                      <Table.Summary.Cell index={5} />
-                      <Table.Summary.Cell index={6}>
-                        {data
-                          ? data
-                              .reduce((sum, entry) => sum + entry.nominal, 0)
-                              .toLocaleString("de-DE", {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                              })
-                          : "0,00"}
-                      </Table.Summary.Cell>
-                      <Table.Summary.Cell align="end" index={7}>
-                        {data
-                          ? data
-                              .reduce(
-                                (sum, entry) =>
-                                  sum + calculateSingleInterest(entry),
-                                0,
-                              )
-                              .toLocaleString("de-DE", {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                              })
-                          : "0,00"}
-                      </Table.Summary.Cell>
-                      <Table.Summary.Cell align="end" index={8}>
-                        {quartalsEnde
-                          ? data
-                              .reduce(
-                                (sum, entry) =>
-                                  sum + calculateAccumulatedInterest(entry),
-                                0,
-                              )
-                              .toLocaleString("de-DE", {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                              })
-                          : "0,00"}
-                      </Table.Summary.Cell>
-                      <Table.Summary.Cell align="end" index={9}>
-                        {quartalsBeginn && quartalsEnde
-                          ? data
-                              .reduce(
-                                (sum, entry) =>
-                                  sum + calculateQuarterlySingleInterest(entry),
-                                0,
-                              )
-                              .toLocaleString("de-DE", {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                              })
-                          : "0,00"}
-                      </Table.Summary.Cell>
-                      <Table.Summary.Cell align="end" index={10}>
-                        {data
-                          ? data
-                              .reduce(
-                                (sum, entry) =>
-                                  sum + (entry.verbuchteRueckstellung || 0),
-                                0,
-                              )
-                              .toLocaleString("de-DE", {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                              })
-                          : "0,00"}
-                      </Table.Summary.Cell>
-                      <Table.Summary.Cell align="end" index={11}>
-                        {data
-                          ? data
-                              .reduce(
-                                (sum, entry) =>
-                                  sum +
-                                  calculateQuarterlySingleInterest(entry) -
-                                  (entry.verbuchteRueckstellung || 0),
-                                0,
-                              )
-                              .toLocaleString("de-DE", {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                              })
-                          : "0,00"}
-                      </Table.Summary.Cell>
-                      <Table.Summary.Cell index={12} />
-                    </Table.Summary.Row>
-                  </Table.Summary>
-                )}
+                rowClassName={rowClassName}
+                summary={() => tableSummary}
               >
                 <Table.Column
                   title="Bankname"
@@ -1615,9 +2217,22 @@ export function AppLayout({
       </Layout>
 
       <Modal
-        title="Chronologische Historie aller Banken"
+        title={
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <span>Chronologische Historie aller Banken</span>
+            <Switch
+              checked={historyShowChart}
+              onChange={setHistoryShowChart}
+              checkedChildren="Diagramm"
+              unCheckedChildren="Tabelle"
+            />
+          </div>
+        }
         open={historyPreviewOpen}
         onCancel={() => setHistoryPreviewOpen(false)}
+        width="60vw"
+        destroyOnHidden
+        styles={{ body: { maxHeight: "80vh", overflow: "auto" } }}
         footer={[
           <Button
             key="pdf"
@@ -1635,86 +2250,115 @@ export function AppLayout({
           >
             Als Excel
           </Button>,
-          <Button
-            key="close"
-            type="primary"
-            onClick={() => setHistoryPreviewOpen(false)}
-          >
-            Schließen
-          </Button>,
         ]}
-        width={900}
       >
+        {!historyShowChart ? (
         <Table
           size="small"
+          bordered
           pagination={false}
-          scroll={{ y: 400 }}
+          scroll={{ y: "65vh" }}
           dataSource={historyPreviewRows}
-          rowClassName={(record) =>
-            (record as HistoryRow).prognose ? "history-row-prognose" : ""
-          }
           rowKey={(record, index) =>
-            `${record.datum}-${record.bankName}-${record.ereignis}-${index}`
+            `${record.datum}-${record.bankName}-${record.ereignis}-${record.menge}-${record.prozent}-${index}`
           }
-          columns={[
-            {
-              title: "Datum",
-              dataIndex: "datum",
-              key: "datum",
-              width: 110,
-            },
-            {
-              title: "Bankname",
-              dataIndex: "bankName",
-              key: "bankName",
-            },
-            {
-              title: "Menge (€)",
-              dataIndex: "menge",
-              key: "menge",
-              align: "right",
-              render: (menge: number) =>
-                menge.toLocaleString("de-DE", {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                }),
-            },
-            {
-              title: "Prozent",
-              dataIndex: "prozent",
-              key: "prozent",
-              align: "right",
-              render: (prozent: number, record: HistoryRow) => {
-                const color =
-                  record.aenderung === "up"
-                    ? "#008000"
-                    : record.aenderung === "down"
-                      ? "#cc0000"
-                      : "inherit";
-                const arrow =
-                  record.aenderung === "up" ? (
-                    <ArrowUpOutlined style={{ marginLeft: 4 }} />
-                  ) : record.aenderung === "down" ? (
-                    <ArrowDownOutlined style={{ marginLeft: 4 }} />
-                  ) : null;
-                return (
-                  <span style={{ color, fontWeight: "bold" }}>
-                    {prozent.toLocaleString("de-DE", {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}
-                    %{arrow}
-                  </span>
-                );
-              },
-            },
-            {
-              title: "Ereignis",
-              dataIndex: "ereignis",
-              key: "ereignis",
-            },
-          ]}
+          rowClassName={(record) =>
+            (record as HistoryRow).prognose
+              ? "history-row-prognose"
+              : record.ereignis === "Summe"
+                ? "history-today-row"
+                : ""
+          }
+          columns={historyColumns}
         />
+        ) : historyChart ? (
+            <div style={{ height: "65vh", display: "flex", alignItems: "center" }}>
+              <Line data={historyChart.lineData} options={historyChart.lineOptions} plugins={historyChart.plugins} />
+            </div>
+          ) : null}
+      </Modal>
+
+      <Modal
+        title="Historie-Gruppen konfigurieren"
+        open={groupConfigOpen}
+        onCancel={() => setGroupConfigOpen(false)}
+        destroyOnHidden
+        footer={
+          <Button type="primary" onClick={() => setGroupConfigOpen(false)}>
+            Fertig
+          </Button>
+        }
+        width={600}
+      >
+        <Typography.Paragraph type="secondary">
+          Erstellen Sie Gruppen, um in der Historie separate Spalten pro Gruppe
+          anzuzeigen. Jede Gruppe enthält ausgewählte Banken.
+        </Typography.Paragraph>
+        <Space direction="vertical" style={{ width: "100%" }} size="middle">
+          {historyGroups.map((group, idx) => (
+            <Card
+              key={idx}
+              size="small"
+              title={group.name}
+              extra={
+                <Button
+                  type="text"
+                  danger
+                  icon={<DeleteOutlined />}
+                  onClick={() =>
+                    setHistoryGroups((prev) => prev.filter((_, i) => i !== idx))
+                  }
+                />
+              }
+            >
+              <Select
+                mode="multiple"
+                style={{ width: "100%" }}
+                placeholder="Banken auswählen"
+                value={group.banks}
+                onChange={(banks) =>
+                  setHistoryGroups((prev) =>
+                    prev.map((g, i) => (i === idx ? { ...g, banks } : g)),
+                  )
+                }
+                options={[
+                  ...new Set(data.map((d) => d.bankName)),
+                ].map((b) => ({ label: b, value: b }))}
+              />
+            </Card>
+          ))}
+          <Space.Compact style={{ width: "100%" }}>
+            <Input
+              placeholder="Neuer Gruppenname"
+              value={newGroupName}
+              onChange={(e) => setNewGroupName(e.target.value)}
+              onPressEnter={() => {
+                if (newGroupName.trim()) {
+                  setHistoryGroups((prev) => [
+                    ...prev,
+                    { name: newGroupName.trim(), banks: [] },
+                  ]);
+                  setNewGroupName("");
+                }
+              }}
+            />
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={() => {
+                if (newGroupName.trim()) {
+                  setHistoryGroups((prev) => [
+                    ...prev,
+                    { name: newGroupName.trim(), banks: [] },
+                  ]);
+                  setNewGroupName("");
+                }
+              }}
+            >
+              Hinzufügen
+            </Button>
+          </Space.Compact>
+        </Space>
       </Modal>
     </Layout>
   );

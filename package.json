@@ -25,8 +25,10 @@
     "@ant-design/icons": "^6.0.0",
     "antd": "^5.26.6",
     "antd-style": "^3.7.1",
+    "chart.js": "^4.5.1",
     "dayjs": "^1.11.13",
-    "electron-updater": "^6.6.7"
+    "electron-updater": "^6.6.7",
+    "react-chartjs-2": "^5.3.1"
   },
   "devDependencies": {
     "@playwright/test": "^1.54.1",
@@ -40,7 +42,7 @@
     "prettier": "^3.6.2",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "typescript": "^5.8.2",
+    "typescript": "^5.9.3",
     "vite": "6.3.4",
     "vite-plugin-electron": "^0.29.0",
     "vite-plugin-electron-renderer": "^0.14.6",
