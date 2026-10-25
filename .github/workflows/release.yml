@@ -118,6 +118,32 @@ jobs:
             --clientId $env:PARTNER_CENTER_CLIENT_ID `
             --clientSecret $env:PARTNER_CENTER_CLIENT_SECRET
 
+      - name: Wait for existing Store submission to finish
+        shell: pwsh
+        env:
+          MSSTORE_APP_ID: ${{ vars.MSSTORE_APP_ID }}
+        run: |
+          $deadline = (Get-Date).AddHours(2)
+          do {
+            $applicationJson = & msstore apps get $env:MSSTORE_APP_ID
+            if ($LASTEXITCODE -ne 0) { throw "Could not retrieve Store application state." }
+            $application = ($applicationJson | Out-String) | ConvertFrom-Json
+            if (!$application.pendingApplicationSubmission.id) {
+              Write-Host "No pending Store submission; ready to publish."
+              break
+            }
+            $submissionJson = & msstore submission get $env:MSSTORE_APP_ID
+            if ($LASTEXITCODE -ne 0) { throw "Could not retrieve pending submission state." }
+            $submission = ($submissionJson | Out-String) | ConvertFrom-Json
+            Write-Host "Existing submission $($submission.id): $($submission.status)"
+            if ($submission.status -in @("Pending", "CommitFailed", "PreProcessingFailed", "CertificationFailed", "ReleaseFailed")) {
+              Write-Host "Existing submission is editable; ready to replace it."
+              break
+            }
+            if ((Get-Date) -ge $deadline) { throw "Existing Store submission remained locked for two hours." }
+            Start-Sleep -Seconds 60
+          } while ($true)
+
       - name: Publish package to Microsoft Store
         shell: pwsh
         env:
