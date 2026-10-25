@@ -122,11 +122,46 @@ jobs:
         shell: pwsh
         env:
           MSSTORE_APP_ID: ${{ vars.MSSTORE_APP_ID }}
+          PACKAGE_VERSION: ${{ needs.check-version.outputs.version }}
         run: |
           if ([string]::IsNullOrWhiteSpace($env:MSSTORE_APP_ID)) {
             throw "Repository variable MSSTORE_APP_ID is not set. See docs/microsoft-store.md."
           }
 
-          msstore publish . `
-            --inputDirectory store-package `
-            --appId $env:MSSTORE_APP_ID
+          $packageDirectory = Join-Path "store-package" $env:PACKAGE_VERSION
+          $packageName = "Zinsrechner-Store-$env:PACKAGE_VERSION-x64.appx"
+          $packagePath = Join-Path $packageDirectory $packageName
+          if (!(Test-Path -LiteralPath $packagePath -PathType Leaf)) {
+            throw "Expected Store package is missing: $packagePath"
+          }
+          $packages = @(Get-ChildItem -LiteralPath $packageDirectory -Filter *.appx -File)
+          if ($packages.Count -ne 1) {
+            throw "Expected exactly one AppX in $packageDirectory; found $($packages.Count)."
+          }
+
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $archive = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $packagePath).Path)
+          try {
+            $entry = $archive.GetEntry("AppxManifest.xml")
+            if ($null -eq $entry) { throw "AppX manifest is missing." }
+            $reader = [System.IO.StreamReader]::new($entry.Open())
+            try { [xml]$manifest = $reader.ReadToEnd() } finally { $reader.Dispose() }
+            $expectedVersion = "$env:PACKAGE_VERSION.0"
+            if ($manifest.Package.Identity.Version -ne $expectedVersion) {
+              throw "Expected manifest version $expectedVersion; found $($manifest.Package.Identity.Version)."
+            }
+          } finally {
+            $archive.Dispose()
+          }
+          Write-Host "Publishing verified package: $packagePath (manifest $expectedVersion)"
+          Get-FileHash -LiteralPath $packagePath -Algorithm SHA256
+
+          $publishOutput = & msstore publish . `
+            --inputDirectory $packageDirectory `
+            --appId $env:MSSTORE_APP_ID 2>&1 | Tee-Object -Variable publishLog
+          $publishExitCode = $LASTEXITCODE
+          $publishOutput | Write-Output
+          if ($publishExitCode -ne 0) { throw "Store publish failed with exit code $publishExitCode." }
+          if (($publishLog | Out-String) -notmatch [regex]::Escape($packageName)) {
+            throw "Store response did not confirm the expected package $packageName. Inspect the submission before retrying."
+          }

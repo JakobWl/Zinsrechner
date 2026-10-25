@@ -53,6 +53,7 @@ Required repository configuration:
 Notes:
 
 - A manual Store run rebuilds the package even when its GitHub release already exists. It does not create a duplicate GitHub release.
+- Artifact downloads retain the version subfolder. Publishing uses `store-package/<version>` because the CLI searches only the top directory. The job checks the exact filename and AppX manifest version before publishing, and checks that the final Store response lists that filename.
 
 - The Store rejects packages whose version is not higher than the currently published one. Bump `version` in
   `package.json` before re-running the job.
