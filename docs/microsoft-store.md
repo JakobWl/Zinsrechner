@@ -12,7 +12,7 @@ Build the Store package:
 npm run build:store
 ```
 
-The Store build passes `--publish never` to electron-builder. This is required in CI because electron-builder otherwise detects GitHub Actions and tries to publish with the global GitHub release configuration.
+The Store build compiles the Tauri release executable without an installer, then uses the Windows SDK MakeAppx tool to package it. Run this command on Windows with the Windows SDK installed. The package declares the WebView2 runtime dependency.
 
 The output is:
 
@@ -24,13 +24,13 @@ Upload this `.appx` file in Partner Center using the package upload flow. Do not
 
 ## Partner Center package identity
 
-Before final submission, check the package identity values assigned by Partner Center after reserving the app name. If Partner Center rejects the package identity, update `electron-builder.microsoft-store.json`:
+Before final submission, check the package identity values assigned by Partner Center after reserving the app name. If Partner Center rejects the package identity, update `build/AppxManifest.xml`:
 
-- `appx.identityName`
-- `appx.publisher`
-- `appx.publisherDisplayName`
+- `Identity Name`
+- `Identity Publisher`
+- `Properties PublisherDisplayName`
 
-`appx.publisher` is set to the Partner Center publisher ID (`CN=2FB3D10A-81DA-44DA-AA5D-0E9816DC9FB2`) and the AppX is not Authenticode-signed locally. The Microsoft Store signs the uploaded package during certification.
+`Identity Publisher` is set to the Partner Center publisher ID (`CN=2FB3D10A-81DA-44DA-AA5D-0E9816DC9FB2`) and the AppX is not Authenticode-signed locally. The Microsoft Store signs the uploaded package during certification.
 
 ## Automated submission via GitHub Actions
 
@@ -57,8 +57,7 @@ Notes:
 
 - The Store rejects packages whose version is not higher than the currently published one. Bump `version` in
   `package.json` before re-running the job.
-- `npm run validate:store` is not part of this job: it verifies Authenticode signatures of the NSIS installer and
-  `win-unpacked`, neither of which exists in the Store submission flow (the Store signs the AppX itself).
+- `npm run validate:store` checks the AppX identity, version, executable, tile assets, and WebView2 dependency. The Store packaging script runs it automatically. The Store signs the AppX itself.
 - For the first submission, publish manually in Partner Center. Automated submissions require the app to exist and
   the Entra app to be linked to the Partner Center account (see the guide in the repository docs / chat).
 - `msstore publish` without `--noCommit` commits the submission, which sends it into certification. Add `--noCommit`

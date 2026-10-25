@@ -39,8 +39,8 @@ function App() {
   useEffect(() => {
     document.documentElement.dataset.theme = darkMode ? "dark" : "light";
     document.documentElement.style.colorScheme = darkMode ? "dark" : "light";
-    if (window.ipcRenderer) {
-      window.ipcRenderer.send("update-titlebar-overlay", darkMode);
+    if (window.desktop) {
+      window.desktop.send("update-titlebar-overlay", darkMode);
     }
   }, [darkMode]);
 

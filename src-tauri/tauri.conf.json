@@ -1,0 +1,52 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Zinsrechner",
+  "version": "../package.json",
+  "identifier": "com.jakobwl.zinsrechner",
+  "build": {
+    "beforeDevCommand": "npm run dev:web",
+    "devUrl": "http://127.0.0.1:7777",
+    "beforeBuildCommand": "npm run build:web",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Zinsrechner",
+        "width": 1600,
+        "height": 800,
+        "minWidth": 800,
+        "minHeight": 550,
+        "maximized": true,
+        "decorations": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src ipc: http://ipc.localhost https://api.github.com https://displaycatalog.mp.microsoft.com https://github.com https://objects.githubusercontent.com; object-src 'none'; base-uri 'self'; frame-src 'self'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis"
+    ],
+    "icon": [
+      "../build/icon.png",
+      "../build/icon.ico",
+      "../build/icon.icns"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "displayLanguageSelector": false,
+        "languages": [
+          "German"
+        ]
+      },
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      }
+    }
+  }
+}

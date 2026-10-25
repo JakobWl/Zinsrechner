@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+ xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+ xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+ xmlns:win32dependencies="http://schemas.microsoft.com/appx/manifest/externaldependencies"
+ IgnorableNamespaces="uap rescap win32dependencies">
+ <Identity Name="Wideve.U.BBGZinsrechner" Publisher="CN=2FB3D10A-81DA-44DA-AA5D-0E9816DC9FB2" Version="__VERSION__.0" ProcessorArchitecture="x64"/>
+ <Properties>
+  <DisplayName>WiDev Zinsrechner</DisplayName>
+  <PublisherDisplayName>Widev e.U.</PublisherDisplayName>
+  <Logo>assets\StoreLogo.png</Logo>
+ </Properties>
+ <Resources><Resource Language="de-DE"/></Resources>
+ <Dependencies>
+  <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0"/>
+  <win32dependencies:ExternalDependency Name="Microsoft.WebView2"
+   Publisher="CN=Microsoft Windows, O=Microsoft Corporation, L=Redmond, S=Washington, C=US"
+   MinVersion="110.0.1587.63" Optional="false"/>
+ </Dependencies>
+ <Applications>
+  <Application Id="Wideve.U.BBGZinsrechner" Executable="zinsrechner.exe" EntryPoint="Windows.FullTrustApplication">
+   <uap:VisualElements DisplayName="WiDev Zinsrechner" Description="Anlagen und Zinsabgrenzung"
+    BackgroundColor="#ffffff" Square150x150Logo="assets\Square150x150Logo.png" Square44x44Logo="assets\Square44x44Logo.png">
+    <uap:DefaultTile Wide310x150Logo="assets\Wide310x150Logo.png"/>
+   </uap:VisualElements>
+  </Application>
+ </Applications>
+ <Capabilities><rescap:Capability Name="runFullTrust"/></Capabilities>
+</Package>

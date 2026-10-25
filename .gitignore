@@ -10,12 +10,10 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
-dist-electron
 release
 *.local
 
 # Editor directories and files
-.vscode/.debug.env
 .idea
 .DS_Store
 *.suo
@@ -25,7 +23,6 @@ release
 *.sw?
 
 #lockfile
-package-lock.json
 pnpm-lock.yaml
 yarn.lock
 /test-results/
@@ -34,3 +31,6 @@ yarn.lock
 
 # lokaler Arbeitsordner (Screenshots, Preview-Skripte)
 .jait/
+
+/src-tauri/target/
+/src-tauri/gen/

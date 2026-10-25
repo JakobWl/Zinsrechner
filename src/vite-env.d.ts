@@ -1,6 +1,5 @@
 /// <reference types="vite/client" />
-
 interface Window {
-  // expose in the `electron/preload/index.ts`
-  ipcRenderer: import("electron").IpcRenderer;
+  desktop: import("./desktop/types").DesktopBridge;
+  __TAURI_INTERNALS__?: unknown;
 }

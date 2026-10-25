@@ -14,6 +14,9 @@ permissions:
   contents: write
 
 jobs:
+  verify:
+    uses: ./.github/workflows/verify.yml
+
   check-version:
     runs-on: ubuntu-latest
     outputs:
@@ -39,7 +42,7 @@ jobs:
           fi
 
   build-windows:
-    needs: check-version
+    needs: [check-version, verify]
     if: needs.check-version.outputs.should_release == 'true' || (github.event_name == 'workflow_dispatch' && inputs.publish_to_store == true)
     runs-on: windows-latest
     steps:
@@ -50,10 +53,16 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci --include=dev
 
       - name: Test
         run: npm test
@@ -61,16 +70,34 @@ jobs:
       - name: Build Microsoft Store package
         run: npm run build:store
 
+      - name: Build compact Windows installer
+        shell: pwsh
+        env:
+          TAURI_UPDATER_PUBLIC_KEY: ${{ vars.TAURI_UPDATER_PUBLIC_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if ($env:TAURI_UPDATER_PUBLIC_KEY -and $env:TAURI_SIGNING_PRIVATE_KEY) {
+            node scripts/updater-config.mjs
+            if ($LASTEXITCODE -ne 0) { throw "Updater configuration failed." }
+            npm run tauri -- build --config .jait/artifacts/tauri-updater.conf.json
+          } else {
+            npm run build
+          }
+          if ($LASTEXITCODE -ne 0) { throw "Tauri build failed." }
+          node scripts/stage-release.mjs
+          if ($LASTEXITCODE -ne 0) { throw "Release staging failed." }
+
       - name: Create GitHub release
         if: needs.check-version.outputs.should_release == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ needs.check-version.outputs.version }}
         run: |
-          gh release create "v$env:VERSION" `
-            "release/$env:VERSION/Zinsrechner-Store-$env:VERSION-x64.appx" `
+          $assets = @(Get-ChildItem "release/$env:VERSION" -File | ForEach-Object { $_.FullName })
+          gh release create "v$env:VERSION" @assets `
             --title "Zinsrechner $env:VERSION" `
-            --notes "Microsoft Store AppX package for Zinsrechner $env:VERSION. Upload this package in Partner Center; Microsoft signs Store packages during certification."
+            --notes "Tauri Zinsrechner $env:VERSION: compact Windows installer and Microsoft Store AppX. Existing account data is copied on first launch."
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

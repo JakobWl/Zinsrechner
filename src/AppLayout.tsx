@@ -27,7 +27,8 @@ import {
   theme,
   Tooltip,
   Typography,
-  message,
+  App as AntApp,
+  Alert,
 } from "antd";
 import type { MenuProps } from "antd";
 import {
@@ -232,6 +233,8 @@ export function AppLayout({
   themeMode?: "system" | "light" | "dark";
   isDarkMode?: boolean;
 }) {
+  const { message } = AntApp.useApp();
+  const [loadError, setLoadError] = useState<string | null>(null);
   const {
     token: { colorErrorBgHover },
   } = theme.useToken();
@@ -310,14 +313,20 @@ export function AppLayout({
   const [form] = Form.useForm<KontoFormValues>();
 
   useEffect(() => {
+    const report = (event: Event) => message.error(`Speichern oder Desktop-Aktion fehlgeschlagen: ${(event as CustomEvent).detail}`);
+    window.addEventListener("desktop-error", report);
+    return () => window.removeEventListener("desktop-error", report);
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
 
-    if (!window.ipcRenderer) {
+    if (!window.desktop) {
       hasLoadedData.current = true;
       return;
     }
 
-    window.ipcRenderer
+    window.desktop
       .invoke("load-data")
       .then((fileData: string) => {
         if (cancelled) return;
@@ -338,6 +347,8 @@ export function AppLayout({
             })),
           );
         } catch (error) {
+          hasLoadedData.current = false;
+          setLoadError("Die gespeicherten Kontodaten konnten nicht geladen werden.");
           console.error("Error parsing JSON data:", error);
           message.error(
             "Die gespeicherten Kontodaten konnten nicht geladen werden.",
@@ -347,7 +358,8 @@ export function AppLayout({
       })
       .catch((error) => {
         if (cancelled) return;
-        hasLoadedData.current = true;
+        hasLoadedData.current = false;
+        setLoadError("Die Kontodaten konnten nicht geladen werden.");
         console.error("Error loading data:", error);
         message.error("Die Kontodaten konnten nicht geladen werden.");
       });
@@ -359,37 +371,40 @@ export function AppLayout({
 
   // Load history groups
   useEffect(() => {
-    if (!window.ipcRenderer) return;
-    window.ipcRenderer.invoke("load-history-groups").then((raw: string) => {
+    if (!window.desktop) return;
+    window.desktop.invoke("load-history-groups").then((raw: string) => {
       try {
         if (raw) setHistoryGroups(JSON.parse(raw));
       } catch { /* ignore */ }
       hasLoadedGroups.current = true;
+    }).catch((error) => {
+      hasLoadedGroups.current = false;
+      message.error(`Die Historie-Gruppen konnten nicht geladen werden: ${String(error)}`);
     });
   }, []);
 
   // Save history groups when changed
   useEffect(() => {
-    if (!hasLoadedGroups.current || !window.ipcRenderer) return;
-    window.ipcRenderer.send("save-history-groups", JSON.stringify(historyGroups, null, 2));
+    if (!hasLoadedGroups.current || !window.desktop) return;
+    window.desktop.send("save-history-groups", JSON.stringify(historyGroups, null, 2));
   }, [historyGroups]);
 
   useEffect(() => {
-    if (!hasLoadedData.current || !window.ipcRenderer) return;
-    window.ipcRenderer.send("save-data", JSON.stringify(data, null, 2));
+    if (!hasLoadedData.current || !window.desktop) return;
+    window.desktop.send("save-data", JSON.stringify(data, null, 2));
   }, [data]);
 
   // Prognose laden (prognose.json) – gleiches Muster wie konten.json.
   useEffect(() => {
     let cancelled = false;
 
-    if (!window.ipcRenderer) {
+    if (!window.desktop) {
       hasLoadedForecast.current = true;
       setForecastLoaded(true);
       return;
     }
 
-    window.ipcRenderer
+    window.desktop
       .invoke("load-forecast")
       .then((fileData: string) => {
         if (cancelled) return;
@@ -424,8 +439,8 @@ export function AppLayout({
 
   // Prognose speichern, sobald sie sich ändert.
   useEffect(() => {
-    if (!hasLoadedForecast.current || !window.ipcRenderer || !forecast) return;
-    window.ipcRenderer.send("save-forecast", JSON.stringify(forecast, null, 2));
+    if (!hasLoadedForecast.current || !window.desktop || !forecast) return;
+    window.desktop.send("save-forecast", JSON.stringify(forecast, null, 2));
   }, [forecast]);
 
   // "today" for the "bald abgelaufen" warning. Recomputed at most every few
@@ -641,16 +656,16 @@ export function AppLayout({
   };
 
   const handleCheckForUpdates = async () => {
-    if (!window.ipcRenderer || updateChecking) return;
+    if (!window.desktop || updateChecking) return;
     setUpdateChecking(true);
     setUpdateInfo(null);
     try {
-      const result = await window.ipcRenderer.invoke("check-for-updates");
+      const result = await window.desktop.invoke("check-for-updates");
       if (result?.store) {
         // Microsoft Store build: the Store updates page was opened.
         setUpdateInfo(result);
         message.success(
-          "Microsoft Store wurde geöffnet. Laden Sie dort die neueste Version herunter.",
+          "Microsoft Store wurde geöffnet. Prüfen Sie dort die verfügbaren Updates.",
         );
       } else if (result?.status === "up-to-date") {
         setUpdateInfo(result);
@@ -675,8 +690,8 @@ export function AppLayout({
   };
 
   const handleInstallUpdate = async () => {
-    if (!window.ipcRenderer) return;
-    const result = await window.ipcRenderer.invoke("install-update");
+    if (!window.desktop) return;
+    const result = await window.desktop.invoke("install-update");
     if (!result?.ok) message.error("Update konnte nicht installiert werden.");
   };
 
@@ -684,10 +699,10 @@ export function AppLayout({
   // published. The "Aktualisieren" button is only rendered when an update
   // is actually available, so the toolbar stays clean otherwise.
   useEffect(() => {
-    if (!window.ipcRenderer) return;
+    if (!window.desktop) return;
     let cancelled = false;
     const check = () =>
-      window.ipcRenderer
+      window.desktop
         .invoke("check-update-available")
         .then((r: { available: boolean; latest?: string }) => {
           if (!cancelled) setUpdateAvailable(!!r?.available);
@@ -703,9 +718,9 @@ export function AppLayout({
 
   // Listen to live updater progress / status events from the main process.
   useEffect(() => {
-    if (!window.ipcRenderer) return;
+    if (!window.desktop) return;
     const handler = (
-      _e: import("electron").IpcRendererEvent,
+      _e: unknown,
       payload: {
         status: string;
         version?: string;
@@ -731,9 +746,9 @@ export function AppLayout({
         );
       }
     };
-    window.ipcRenderer.on("update-status", handler);
+    window.desktop.on("update-status", handler);
     return () => {
-      window.ipcRenderer?.off?.("update-status", handler);
+      window.desktop?.off?.("update-status", handler);
     };
   }, []);
 
@@ -1285,7 +1300,7 @@ export function AppLayout({
         </body>
       </html>
       `;
-    window.ipcRenderer.send("create-print-window", { content: contentHTML });
+    window.desktop.send("create-print-window", { content: contentHTML });
   };
 
   const [historyPreviewOpen, setHistoryPreviewOpen] = useState(false);
@@ -1297,7 +1312,7 @@ export function AppLayout({
       message.warning("Keine Daten zum Exportieren vorhanden.");
       return;
     }
-    const result = await window.ipcRenderer.invoke("export-history-pdf", rows, historyGroups);
+    const result = await window.desktop.invoke("export-history-pdf", rows, historyGroups);
     if (result?.saved) {
       message.success(`Historie als PDF gespeichert: ${result.path}`);
     }
@@ -1309,7 +1324,7 @@ export function AppLayout({
       message.warning("Keine Daten zum Exportieren vorhanden.");
       return;
     }
-    const result = await window.ipcRenderer.invoke(
+    const result = await window.desktop.invoke(
       "export-history-excel",
       rows,
       historyGroups,
@@ -1901,6 +1916,7 @@ export function AppLayout({
                 <Button
                   type="primary"
                   htmlType="submit"
+                  disabled={!!loadError}
                   block
                   icon={<PlusOutlined />}
                 >
@@ -1917,6 +1933,7 @@ export function AppLayout({
           role="main"
           tabIndex={-1}
         >
+          {loadError && <Alert type="error" showIcon message={loadError} description="Ihre gespeicherten Dateien bleiben erhalten. Bitte beheben Sie den Ladefehler, bevor Sie weitere Daten erfassen." />}
           {view === "prognose" && forecastLoaded && (
             <ForecastView
               accounts={data}

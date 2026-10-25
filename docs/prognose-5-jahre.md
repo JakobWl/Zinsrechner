@@ -102,7 +102,7 @@ Ant-Design-`Progress`/eigene SVG-Lösung (kein neues schweres Paket).
 ### 4.4 Export
 
 Die Prognosetabelle über die bestehenden Export-Wege (Excel/PDF) mitgeben – gleiche
-IPC-Handler wie `handleExportHistoryExcel` (`electron/main/index.ts`). Dateiname z. B.
+Desktop-Bridge `src/desktop/bridge.ts` mit `buildHistoryExcelXml` aus `src/desktop/reports.ts`. Dateiname z. B.
 `prognose_5_jahre_<Stichtag>.xlsx`.
 
 ---
@@ -139,7 +139,7 @@ oder als **Drawer**, geöffnet über den vorhandenen Menüpunkt
 | Tests der Engine | `src/forecast.test.js` | **fertig** – 14 Tests grün, u. a. gegen `calculateInterest` verifiziert |
 | UI-Komponente | `src/components/ForecastPanel.tsx` (neu) | offen |
 | Einbindung | `src/AppLayout.tsx` (Card/Reiter, State für Szenario) | offen |
-| Export | `electron/main/index.ts` (bestehende Handler erweitern) | offen |
+| Export | `src/desktop/bridge.ts` und `src/desktop/reports.ts` | offen |
 
 Vorhandene öffentliche API (unverändert nutzbar):
 
