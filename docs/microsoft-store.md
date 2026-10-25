@@ -52,6 +52,8 @@ Required repository configuration:
 
 Notes:
 
+- A manual Store run rebuilds the package even when its GitHub release already exists. It does not create a duplicate GitHub release.
+
 - The Store rejects packages whose version is not higher than the currently published one. Bump `version` in
   `package.json` before re-running the job.
 - `npm run validate:store` is not part of this job: it verifies Authenticode signatures of the NSIS installer and

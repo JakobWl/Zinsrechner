@@ -40,7 +40,7 @@ jobs:
 
   build-windows:
     needs: check-version
-    if: needs.check-version.outputs.should_release == 'true'
+    if: needs.check-version.outputs.should_release == 'true' || (github.event_name == 'workflow_dispatch' && inputs.publish_to_store == true)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -62,6 +62,7 @@ jobs:
         run: npm run build:store
 
       - name: Create GitHub release
+        if: needs.check-version.outputs.should_release == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ needs.check-version.outputs.version }}
