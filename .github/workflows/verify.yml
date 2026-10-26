@@ -76,6 +76,9 @@ jobs:
         env:
           TAURI_DRIVER: tauri-driver
           NATIVE_WEBDRIVER: /usr/bin/WebKitWebDriver
+        # Bounded so a hung tauri-driver/WebKitWebDriver session fails the gate
+        # instead of blocking the release job for the runner's default limit.
+        timeout-minutes: 15
         run: xvfb-run -a npm run test:native
       - name: Native desktop tests (Windows, advisory)
         # Blocking gate for the native suite is the Linux job, which drives the same
@@ -87,6 +90,7 @@ jobs:
         continue-on-error: true
         env:
           TAURI_DRIVER: tauri-driver
+        timeout-minutes: 15
         run: npm run test:native
       - name: Upload test reports
         if: always()
