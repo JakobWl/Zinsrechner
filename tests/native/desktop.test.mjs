@@ -21,6 +21,16 @@ const account = {
   nominal: 10000,
   dayCountConvention: "actual",
 };
+// The shipped version lives in package.json; tauri.conf.json only points at it.
+const appVersion = JSON.parse(
+  await readFile(new URL("../../package.json", import.meta.url), "utf8"),
+).version;
+const storePackage = (version) =>
+  `Wideve.U.BBGZinsrechner_${version}.0_x64__svv3hhfbxqbc8`;
+const nextVersion = (() => {
+  const [major, minor, patch] = appVersion.split(".").map(Number);
+  return `${major}.${minor}.${patch + 1}`;
+})();
 const fixture = {
   Product: {
     DisplaySkuAvailabilities: [
@@ -29,8 +39,8 @@ const fixture = {
           Properties: {
             Packages: [
               {
-                PackageFullName:
-                  "Wideve.U.BBGZinsrechner_1.2.4.0_x64__svv3hhfbxqbc8",
+                // Same version the running application reports: nothing to install.
+                PackageFullName: storePackage(appVersion),
               },
             ],
           },
@@ -448,7 +458,7 @@ test(
       );
       const changed = structuredClone(fixture);
       changed.Product.DisplaySkuAvailabilities[0].Sku.Properties.Packages[0].PackageFullName =
-        "Wideve.U.BBGZinsrechner_1.2.5.0_x64__svv3hhfbxqbc8";
+        storePackage(nextVersion);
       await writeFile(
         path.join(app.dir, "catalog.json"),
         JSON.stringify(changed),
