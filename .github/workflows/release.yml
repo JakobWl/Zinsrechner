@@ -97,7 +97,7 @@ jobs:
           $assets = @(Get-ChildItem "release/$env:VERSION" -File | ForEach-Object { $_.FullName })
           gh release create "v$env:VERSION" @assets `
             --title "Zinsrechner $env:VERSION" `
-            --notes "Tauri Zinsrechner $env:VERSION: compact Windows installer and Microsoft Store AppX. Existing account data is copied on first launch."
+            --notes "Zinsrechner $env:VERSION (Tauri): compact Windows installer and Microsoft Store AppX. Existing account data is copied on first launch. Forecast tables now expand to full height and stay scrollable at small window sizes."
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

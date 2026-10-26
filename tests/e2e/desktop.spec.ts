@@ -144,3 +144,29 @@ test("load errors are visible and do not overwrite saved accounts", async ({ pag
   const saves = await page.evaluate(() => JSON.parse(localStorage.getItem("__calls") || "[]").filter((c: any) => c.command === "write_document" && c.args.name === "konten.json"));
   expect(saves).toEqual([]);
 });
+
+
+test("forecast tables keep their rows visible and scroll into view at different window sizes", async ({ page }) => {
+  await page.clock.setFixedTime(new Date("2025-06-01T12:00:00Z"));
+  await launch(page);
+  await page.getByRole("button", { name: "Prognose öffnen" }).click();
+  const cards = page.locator(".forecast-card");
+  await expect(cards).toHaveCount(3);
+  for (const viewport of [{ width: 1600, height: 1000 }, { width: 1280, height: 720 }, { width: 1024, height: 600 }]) {
+    await page.setViewportSize(viewport);
+    for (const horizon of [3, 10]) {
+      await page.getByText(`${horizon} Jahre`, { exact: true }).click();
+      for (const card of await cards.all()) {
+        const row = card.locator(".ant-table-tbody > tr:not(.ant-table-measure-row)").first();
+        await row.scrollIntoViewIfNeeded();
+        // Visibility alone does not detect rows clipped by an overflow:hidden ancestor.
+        await expect(row).toBeInViewport();
+        await expect.poll(async () => {
+          const rowBox = await row.boundingBox();
+          const bodyBox = await card.locator(".ant-card-body").boundingBox();
+          return !!rowBox && !!bodyBox && rowBox.y >= bodyBox.y && rowBox.y + rowBox.height <= bodyBox.y + bodyBox.height + 1;
+        }).toBe(true);
+      }
+    }
+  }
+});
