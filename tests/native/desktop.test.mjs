@@ -343,7 +343,7 @@ test(
       await (await find(d, '[aria-label="Prognose öffnen"]')).click();
       await d.wait(
         until.elementLocated(
-          By.xpath('//*[text()="Plan und Zinssätze je Jahr"]'),
+          By.xpath('//*[text()="Jahreswerte aus den Konten"]'),
         ),
         15000,
       );

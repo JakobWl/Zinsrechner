@@ -81,12 +81,12 @@ test("adding, validating and deleting an account survives reload", async ({ page
 test("forecast state, history groups and chart survive desktop integration", async ({ page }) => {
   await launch(page);
   await page.getByRole("button", { name: "Prognose öffnen" }).click();
-  await expect(page.getByText("Plan und Zinssätze je Jahr", { exact: true })).toBeVisible();
+  await expect(page.getByText("Jahreswerte aus den Konten", { exact: true })).toBeVisible();
   await page.getByText("10 Jahre", { exact: true }).click();
   await expect.poll(() => page.evaluate(() => JSON.parse(JSON.parse(localStorage.getItem("__files") || "{}")["prognose.json"]).horizonYears)).toBe(10);
   await page.reload();
   await page.getByRole("button", { name: "Prognose öffnen" }).click();
-  await expect(page.getByText("Plan und Zinssätze je Jahr", { exact: true })).toBeVisible();
+  await expect(page.getByText("Jahreswerte aus den Konten", { exact: true })).toBeVisible();
   await expect(page.locator(".ant-segmented-item-selected")).toContainText("10 Jahre");
   const modal = await history(page);
   await expect(modal.getByText("Testgruppe", { exact: true }).first()).toBeVisible();
