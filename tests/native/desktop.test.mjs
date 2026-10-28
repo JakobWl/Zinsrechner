@@ -6,6 +6,7 @@ import { createWriteStream } from "node:fs";
 import path from "node:path";
 import { createServer } from "node:net";
 import { Builder, By, until, Key } from "selenium-webdriver";
+import { WebDriverAgent } from "./webdriver-agent.mjs";
 
 const root = path.resolve(".jait/artifacts/native", String(Date.now()));
 const application = path.resolve(
@@ -108,6 +109,7 @@ async function start(name, options = {}) {
         ZINSRECHNER_E2E_UPDATE_FIXTURE: path.join(dir, "catalog.json"),
       },
       stdio: ["ignore", "pipe", "pipe"],
+      detached: process.platform !== "win32",
     },
   );
   server.stdout.pipe(log, { end: false });
@@ -118,6 +120,36 @@ async function start(name, options = {}) {
       resolve();
     }),
   );
+  const agent = new WebDriverAgent();
+  let stopping;
+  function stopServer() {
+    if (stopping) return stopping;
+    stopping = (async () => {
+      const kill = (signal) => {
+        try {
+          if (process.platform !== "win32" && server.pid) {
+            process.kill(-server.pid, signal);
+          } else {
+            server.kill(signal);
+          }
+        } catch (error) {
+          if (error.code !== "ESRCH") throw error;
+        }
+      };
+      kill("SIGTERM");
+      const forceKill = setTimeout(() => kill("SIGKILL"), 5000);
+      forceKill.unref();
+      // Descendants can inherit these pipes and keep the close event open.
+      server.stdout.destroy();
+      server.stderr.destroy();
+      try {
+        await serverClosed;
+      } finally {
+        clearTimeout(forceKill);
+      }
+    })();
+    return stopping;
+  }
   let startupError;
   server.on("error", (error) => {
     startupError = error;
@@ -153,6 +185,7 @@ async function start(name, options = {}) {
     });
     driver = await new Builder()
       .usingServer(endpoint)
+      .usingHttpAgent(agent)
       .withCapabilities({
         browserName: "wry",
         "tauri:options": { application },
@@ -166,19 +199,28 @@ async function start(name, options = {}) {
       30000,
     );
   } catch (error) {
-    server.kill();
-    await serverClosed;
+    agent.destroy();
+    await stopServer();
     throw error;
   }
+  let closed;
   return {
     driver,
     dir,
     legacy,
     data,
-    async close() {
-      await driver.quit().catch(() => {});
-      server.kill();
-      await serverClosed;
+    close() {
+      if (!closed) {
+        closed = (async () => {
+          try {
+            await driver.quit();
+          } finally {
+            agent.destroy();
+            await stopServer();
+          }
+        })();
+      }
+      return closed;
     },
   };
 }
@@ -234,16 +276,20 @@ test(
       );
       const updated = [{ ...account, verbuchteRueckstellung: 75 }];
       await invoke(driver, "save-data", JSON.stringify(updated));
-      await invoke(
-        driver,
-        "save-forecast",
-        JSON.stringify({
-          startYear: 2026,
-          years: 5,
-          variants: [],
-          splitByVariant: {},
-        }),
+      await (await find(driver, '[aria-label="Prognose öffnen"]')).click();
+      const horizon = await driver.wait(
+        until.elementLocated(
+          By.xpath(
+            '//label[contains(@class,"ant-segmented-item")][.//*[normalize-space(.)="10 Jahre"]]',
+          ),
+        ),
+        15000,
       );
+      await horizon.click();
+      await driver.wait(async () => {
+        const saved = JSON.parse(await invoke(driver, "load-forecast"));
+        return saved.horizonYears === 10;
+      }, 15000);
       await invoke(
         driver,
         "save-history-groups",
@@ -264,9 +310,16 @@ test(
         JSON.parse(await invoke(app.driver, "load-history-groups"))[0].name,
         "Erhalten",
       );
-      assert.equal(
-        JSON.parse(await invoke(app.driver, "load-forecast")).years,
-        5,
+      const forecast = JSON.parse(await invoke(app.driver, "load-forecast"));
+      assert.equal(forecast.version, 2);
+      assert.equal(forecast.horizonYears, 10);
+      await (await find(app.driver, '[aria-label="Prognose öffnen"]')).click();
+      await app.driver.wait(
+        () =>
+          app.driver.executeScript(
+            'return document.querySelector(".forecast-control .ant-segmented-item-selected")?.textContent?.trim() === "10 Jahre";',
+          ),
+        15000,
       );
     } finally {
       await app.close();
