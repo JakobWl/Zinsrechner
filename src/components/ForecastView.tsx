@@ -1,10 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
-import {
-  ArrowLeftOutlined,
-  DeleteOutlined,
-  InfoCircleOutlined,
-  PlusOutlined,
-} from "@ant-design/icons";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Button,
@@ -12,887 +6,793 @@ import {
   InputNumber,
   Segmented,
   Space,
-  Statistic,
   Table,
   Tag,
   Tooltip,
   Typography,
 } from "antd";
-import type { TableProps } from "antd";
-import dayjs from "dayjs";
-import type { Dayjs } from "dayjs";
-import { calculateInterest } from "../utils/interestCalculation";
+import {
+  ArrowLeftOutlined,
+  DeleteOutlined,
+  PlusOutlined,
+  ReloadOutlined,
+} from "@ant-design/icons";
+import dayjs, { Dayjs } from "dayjs";
 import type { KontoData } from "../utils/interestCalculation";
-import { currentAverageRatePp, expiringNominalByYear } from "../utils/forecast";
+import {
+  currentAverageRatePp,
+  expiringNominalByYear,
+} from "../utils/forecast";
 
-const { Text, Title } = Typography;
+const { Title, Text } = Typography;
 
-/* ------------------------------------------------------------------ Helfer */
+/* ------------------------------------------------------------------------- */
+/* Datenmodell: NUR Einstellungen, niemals berechnete Werte                    */
+/* ------------------------------------------------------------------------- */
 
-const eur = (value: number) =>
-  value.toLocaleString("de-DE", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }) + " €";
-
-const pct = (value: number) =>
-  value.toLocaleString("de-DE", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }) + " %";
-
-const round2 = (value: number) => Math.round(value * 100) / 100;
-
-/** Eine Zelle der Plan-Matrix: Nominal und Zinssatz eines Jahres. */
-export interface PlanCell {
-  year: number;
-  nominal: number;
-  ratePp: number;
-}
-
-export interface PlanVariant {
+/**
+ * Eine Prognose-Gruppe ist ausschließlich eine Nutzer-Einstellung:
+ * Bezeichnung + Anteil am Anlagevolumen. Nominal- und Zinswerte werden
+ * daraus **immer** neu aus den Konten berechnet.
+ */
+export interface ForecastGroup {
   id: string;
   label: string;
-  /** Anteil an der Aufteilung in Prozentpunkten (Eingabe). */
   sharePp: number;
-  cells: PlanCell[];
 }
 
-interface EvaluatedVariant {
-  variant: PlanVariant;
-  interests: number[];
-  total: number;
+/** Persistierter Zustand: ausschließlich Einstellungen. */
+export interface ForecastState {
+  version: 2;
+  horizonYears: number;
+  groups: ForecastGroup[];
+}
+
+export const FORECAST_STATE_VERSION = 2 as const;
+
+export const HORIZON_OPTIONS = [3, 5, 10] as const;
+const MIN_HORIZON = 1;
+const MAX_HORIZON = 15;
+
+export function defaultForecastState(): ForecastState {
+  return {
+    version: FORECAST_STATE_VERSION,
+    horizonYears: 5,
+    groups: [{ id: "base", label: "Basis-Szenario", sharePp: 100 }],
+  };
+}
+
+function clampHorizon(value: unknown): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return defaultForecastState().horizonYears;
+  return Math.min(MAX_HORIZON, Math.max(MIN_HORIZON, Math.round(parsed)));
+}
+
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+function round4(value: number): number {
+  return Math.round(value * 10000) / 10000;
+}
+
+let uidCounter = 0;
+function nextGroupId(): string {
+  uidCounter += 1;
+  return `group-${Date.now().toString(36)}-${uidCounter}`;
+}
+
+function normalizeForecastState(state: ForecastState): ForecastState {
+  const groups = (Array.isArray(state.groups) ? state.groups : [])
+    .filter((group) => group && typeof group === "object")
+    .map((group) => ({
+      id: String(group.id || nextGroupId()),
+      label: String(group.label ?? "").trim() || "Gruppe",
+      sharePp: Number.isFinite(Number(group.sharePp))
+        ? Math.min(100, Math.max(0, round2(Number(group.sharePp))))
+        : 0,
+    }));
+
+  return {
+    version: FORECAST_STATE_VERSION,
+    horizonYears: clampHorizon(state.horizonYears),
+    groups: groups.length > 0 ? groups : defaultForecastState().groups,
+  };
 }
 
 /**
- * Eine Zeile der Aufteilung: Gruppe mit Prozentanteil.
- * Das Nominal stammt ausschließlich aus den im jeweiligen Jahr ablaufenden
- * Veranlagungen (Fälligkeit = endDatum), verteilt nach dem Prozentanteil.
+ * Liest gespeicherte Prognose-Einstellungen und **verwirft** alle früher
+ * mitgeschriebenen Berechnungswerte (Nominal-/Zins-Matrix, `savedAt`).
+ * Alte Dateien mit `variants[].cells` werden nur als Label-/Anteils-Quelle
+ * migriert, nie als Rechenergebnis übernommen.
  */
-interface SplitRow {
-  id: string;
-  label: string;
-  /** Konfigurierter Anteil in Prozentpunkten. */
-  sharePp: number;
-  /** Anteiliges Nominal der im Jahr ablaufenden Veranlagungen. */
-  nominals: number[];
-  /** Zinsen je Plan-Jahr (Index entspricht dem Horizont). */
-  interests: number[];
-  totalNominal: number;
-  totalInterest: number;
-}
+export function parseForecastState(raw: unknown): ForecastState {
+  if (!raw) return defaultForecastState();
 
-let idCounter = 0;
-const nextId = (prefix: string) => `${prefix}-${++idCounter}`;
-
-/** Zinsen eines Plan-Jahres: einfache Verzinsung, Stichtag wird anteilig berücksichtigt. */
-function interestOfCell(cell: PlanCell, start: Dayjs): number {
-  const yearStart = dayjs(`${cell.year}-01-01`);
-  const from = yearStart.isBefore(start, "day") ? start : yearStart;
-  const to = dayjs(`${cell.year}-12-31`);
-  if (to.isBefore(from, "day") || cell.nominal <= 0) {
-    return 0;
+  let value: any = raw;
+  if (typeof value === "string") {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return defaultForecastState();
+    }
   }
-  const entry: KontoData = {
-    bankName: "Prognose",
-    kontoNumber: "—",
-    startDatum: from,
-    endDatum: to,
-    zinssatz: cell.ratePp,
-    nominal: cell.nominal,
-    dayCountConvention: "actual",
-  };
-  return calculateInterest(entry, from, to);
+  if (!value || typeof value !== "object") return defaultForecastState();
+
+  // Aktuelles Format (v2+): nur Einstellungen.
+  if (Array.isArray(value.groups)) {
+    return normalizeForecastState({
+      version: FORECAST_STATE_VERSION,
+      horizonYears: clampHorizon(value.horizonYears),
+      groups: value.groups,
+    });
+  }
+
+  // Altformat (v1): variants[].cells werden bewusst ignoriert.
+  if (Array.isArray(value.variants)) {
+    return normalizeForecastState({
+      version: FORECAST_STATE_VERSION,
+      horizonYears: clampHorizon(value.horizonYears),
+      groups: value.variants.map((variant: any, index: number) => ({
+        id: String(variant?.id ?? `group-${index + 1}`),
+        label: String(variant?.label ?? `Variante ${index + 1}`),
+        sharePp: Number(variant?.sharePp ?? 0),
+      })),
+    });
+  }
+
+  return defaultForecastState();
 }
 
-const makeCells = (years: number[], nominal: number, ratePp: number): PlanCell[] =>
-  years.map((year) => ({ year, nominal, ratePp }));
+/* ------------------------------------------------------------------------- */
+/* Ableitung aus Konten                                                       */
+/* ------------------------------------------------------------------------- */
 
-/** Startverteilung: die Gruppen teilen sich die Anlagesumme zu gleichen Teilen. */
-const equalSharePp = (count: number) => round2(100 / Math.max(count, 1));
-
-/* ------------------------------------------------- Persistierter Zustand */
-
-/** In `prognose.json` gespeicherter Zustand der Prognose. */
-export interface ForecastState {
-  version: 1;
-  startDate: string;
-  horizonYears: number;
-  variants: PlanVariant[];
-  savedAt: string;
-}
-
-/** Jahreswerte der Prognose – Grundlage für die ausgegrauten Historien-Zeilen. */
 export interface ForecastYearAggregate {
   year: number;
+  /** Nominal der am Jahresende noch laufenden Veranlagungen. */
   nominal: number;
+  /** Nach Nominal gewichteter Durchschnittszins des Bestands (in %). */
   ratePp: number;
+  /** Zinsertrag des Jahres aus den Konten (anteilig für Rumpfjahre). */
   interest: number;
+  /** Nominal, das im Jahr fällig wird (Wiederanlage-Bedarf). */
+  expiring: number;
+  /** Anzahl der im Jahr verzinsten Konten. */
+  accountCount: number;
 }
 
-const isFiniteNumber = (value: unknown): value is number =>
-  typeof value === "number" && Number.isFinite(value);
+function yearBounds(year: number) {
+  const yearStart = dayjs(`${year}-01-01`).startOf("day");
+  const yearEnd = dayjs(`${year}-12-31`).startOf("day");
+  return { yearStart, yearEnd };
+}
 
-/** Validiert eine aus `prognose.json` gelesene Struktur. */
-export function parseForecastState(raw: unknown): ForecastState | null {
-  if (!raw || typeof raw !== "object") {
-    return null;
-  }
-  const candidate = raw as Partial<ForecastState>;
-  if (!Array.isArray(candidate.variants) || candidate.variants.length === 0) {
-    return null;
-  }
-  const variants: PlanVariant[] = candidate.variants.map((variant, index) => {
-    const cells = Array.isArray(variant?.cells)
-      ? variant.cells
-          .filter(
-            (cell) =>
-              cell &&
-              isFiniteNumber(cell.year) &&
-              isFiniteNumber(cell.nominal) &&
-              isFiniteNumber(cell.ratePp),
-          )
-          .map((cell) => ({
-            year: cell.year,
-            nominal: cell.nominal,
-            ratePp: cell.ratePp,
-          }))
-      : [];
-    return {
-      id:
-        typeof variant?.id === "string" && variant.id.trim()
-          ? variant.id
-          : `variante-${index + 1}`,
-      label:
-        typeof variant?.label === "string" && variant.label.trim()
-          ? variant.label
-          : `Variante ${index + 1}`,
-      sharePp: isFiniteNumber(variant?.sharePp) ? variant.sharePp : 0,
-      cells,
-    };
+function overlapBounds(start: Dayjs, end: Dayjs, year: number) {
+  const { yearStart, yearEnd } = yearBounds(year);
+  const from = start.isAfter(yearStart) ? start : yearStart;
+  const to = end.isBefore(yearEnd) ? end : yearEnd;
+  if (to.isBefore(from, "day")) return null;
+  return { from, to, yearStart, yearEnd };
+}
+
+/** Zinsen eines Kontos in einem Kalenderjahr (nur Überlappung mit Laufzeit). */
+export function accountInterestInYear(
+  account: KontoData,
+  year: number,
+  start: Dayjs,
+): number {
+  const accountStart = dayjs(account.startDatum).startOf("day");
+  const accountEnd = dayjs(account.endDatum).startOf("day");
+  const overlap = overlapBounds(accountStart, accountEnd, year);
+  if (!overlap) return 0;
+  const from = overlap.from.isBefore(start, "day") ? start : overlap.from;
+  if (overlap.to.isBefore(from, "day")) return 0;
+
+  const days = overlap.to.diff(from, "day") + 1;
+  const yearDays = overlap.yearEnd.diff(overlap.yearStart, "day") + 1;
+  if (days <= 0 || yearDays <= 0) return 0;
+
+  const interest = account.nominal * (account.zinssatz / 100) * (days / yearDays);
+  return round2(interest);
+}
+
+/** Bestand (Nominal) der zu einem Stichtag laufenden Konten. */
+function nominalAtDate(accounts: KontoData[], date: Dayjs): number {
+  return round2(
+    accounts.reduce((sum, account) => {
+      const accountStart = dayjs(account.startDatum).startOf("day");
+      const accountEnd = dayjs(account.endDatum).startOf("day");
+      if (accountStart.isAfter(date, "day")) return sum;
+      if (accountEnd.isBefore(date, "day")) return sum;
+      return sum + account.nominal;
+    }, 0),
+  );
+}
+
+function weightedRateAtDate(accounts: KontoData[], date: Dayjs): number {
+  let nominal = 0;
+  let weighted = 0;
+  accounts.forEach((account) => {
+    const accountStart = dayjs(account.startDatum).startOf("day");
+    const accountEnd = dayjs(account.endDatum).startOf("day");
+    if (accountStart.isAfter(date, "day")) return;
+    if (accountEnd.isBefore(date, "day")) return;
+    nominal += account.nominal;
+    weighted += account.nominal * account.zinssatz;
   });
-  const horizonYears = isFiniteNumber(candidate.horizonYears)
-    ? Math.max(1, Math.min(Math.round(candidate.horizonYears), 20))
-    : 5;
-  return {
-    version: 1,
-    startDate:
-      typeof candidate.startDate === "string"
-        ? candidate.startDate
-        : dayjs().format("YYYY-MM-DD"),
-    horizonYears,
-    variants,
-    savedAt:
-      typeof candidate.savedAt === "string"
-        ? candidate.savedAt
-        : dayjs().toISOString(),
-  };
+  if (nominal <= 0) return 0;
+  return round4(weighted / nominal);
 }
 
 /**
- * Fasst die gespeicherte Prognose zu Jahreswerten zusammen.
- * Die Jahre werden – wie in der Ansicht – ab dem Referenzjahr gezählt.
+ * Kern der Prognose: Jahreswerte werden vollständig aus den Konten abgeleitet.
+ * Es gibt keinen gespeicherten Eingabewert außer dem Zeithorizont.
  */
 export function forecastYearAggregates(
-  state: ForecastState | null | undefined,
-  reference: Dayjs = dayjs().startOf("day"),
+  accounts: KontoData[],
+  state: ForecastState,
+  start: Dayjs | string,
 ): ForecastYearAggregate[] {
-  if (!state || !Array.isArray(state.variants) || state.variants.length === 0) {
-    return [];
-  }
-  const horizon = Math.max(
-    1,
-    Math.min(Math.round(state.horizonYears) || 1, 20),
-  );
-  return Array.from({ length: horizon }, (_, index) => {
-    const year = reference.year() + index;
-    let nominal = 0;
-    let interest = 0;
-    let weightedRate = 0;
-    state.variants.forEach((variant) => {
-      const cell = variant.cells.find((item) => item.year === year);
-      if (!cell || cell.nominal <= 0) {
-        return;
-      }
-      nominal += cell.nominal;
-      interest += interestOfCell(cell, reference);
-      weightedRate += cell.nominal * cell.ratePp;
-    });
+  const anchor = dayjs(start).startOf("day");
+  const horizon = clampHorizon(state?.horizonYears);
+  const years = Array.from({ length: horizon }, (_, index) => anchor.year() + index);
+  const expiring = expiringNominalByYear(accounts, anchor, years);
+
+  return years.map((year, index) => {
+    const snapshot = dayjs(`${year}-12-31`).startOf("day");
+    const interest = round2(
+      accounts.reduce(
+        (sum, account) => sum + accountInterestInYear(account, year, anchor),
+        0,
+      ),
+    );
+    const accountCount = accounts.filter((account) => {
+      const accountStart = dayjs(account.startDatum).startOf("day");
+      const accountEnd = dayjs(account.endDatum).startOf("day");
+      return !accountStart.isAfter(snapshot, "day") && !accountEnd.isBefore(anchor, "day");
+    }).length;
+
     return {
       year,
-      nominal: round2(nominal),
-      ratePp: nominal > 0 ? round2(weightedRate / nominal) : 0,
-      interest: round2(interest),
+      nominal: nominalAtDate(accounts, snapshot),
+      ratePp: weightedRateAtDate(accounts, snapshot),
+      interest,
+      expiring: expiring[index] ?? 0,
+      accountCount,
     };
   });
 }
 
-/* --------------------------------------------------------------- Komponente */
+export interface ForecastSplitRow {
+  id: string;
+  label: string;
+  sharePp: number;
+  nominalByYear: number[];
+  interestByYear: number[];
+  nominalTotal: number;
+  interestTotal: number;
+}
+
+/** Aufteilung je Gruppe: Nominal und Zinsen werden nur umgelegt, nicht gespeichert. */
+export function forecastSplitRows(
+  aggregates: ForecastYearAggregate[],
+  state: ForecastState,
+  start: Dayjs | string,
+): ForecastSplitRow[] {
+  const anchor = dayjs(start).startOf("day");
+  return normalizeForecastState(state).groups.map((group) => {
+    const factor = group.sharePp / 100;
+    const nominalByYear = aggregates.map((row) => round2(row.nominal * factor));
+    const interestByYear = aggregates.map((row) => {
+      const snapshot = dayjs(`${row.year}-12-31`).startOf("day");
+      const yearStart = dayjs(`${row.year}-01-01`).startOf("day");
+      const from = anchor.isAfter(yearStart) ? anchor : yearStart;
+      if (from.isAfter(snapshot, "day")) return 0;
+      const days = snapshot.diff(from, "day") + 1;
+      const yearDays = snapshot.diff(yearStart, "day") + 1;
+      return round2(row.nominal * factor * (row.ratePp / 100) * (days / yearDays));
+    });
+    return {
+      id: group.id,
+      label: group.label,
+      sharePp: group.sharePp,
+      nominalByYear,
+      interestByYear,
+      nominalTotal: round2(nominalByYear.reduce((sum, value) => sum + value, 0)),
+      interestTotal: round2(interestByYear.reduce((sum, value) => sum + value, 0)),
+    };
+  });
+}
+
+/* ------------------------------------------------------------------------- */
+/* Formatierung                                                               */
+/* ------------------------------------------------------------------------- */
+
+const eur = new Intl.NumberFormat("de-DE", {
+  style: "currency",
+  currency: "EUR",
+  maximumFractionDigits: 0,
+});
+
+const pct = new Intl.NumberFormat("de-DE", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+function formatEur(value: number): string {
+  return eur.format(Number.isFinite(value) ? value : 0);
+}
+
+function formatPct(value: number): string {
+  return `${pct.format(Number.isFinite(value) ? value : 0)} %`;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Komponente                                                                 */
+/* ------------------------------------------------------------------------- */
 
 interface ForecastViewProps {
   accounts: KontoData[];
-  onBack: () => void;
-  /** Zuletzt gespeicherte Prognose (aus `prognose.json`). */
-  initialForecast?: ForecastState | null;
-  /** Wird bei jeder Änderung aufgerufen – der Aufrufer persistiert den Zustand. */
+  onBack?: () => void;
+  initialForecast?: unknown;
   onForecastChange?: (state: ForecastState) => void;
 }
 
 export default function ForecastView({
   accounts,
   onBack,
-  initialForecast = null,
+  initialForecast,
   onForecastChange,
 }: ForecastViewProps) {
-  const [startDate] = useState<Dayjs>(() => dayjs().startOf("day"));
-  const [horizonYears, setHorizonYears] = useState(
-    () => initialForecast?.horizonYears ?? 5,
-  );
-  const [variants, setVariants] = useState<PlanVariant[]>(
-    () => initialForecast?.variants ?? [],
-  );
-  // Mit gespeicherter Prognose keine Startwerte überschreiben.
-  const [edited, setEdited] = useState(
-    () => Boolean(initialForecast?.variants.length),
+  // Stichtag wird beim Öffnen fixiert, damit die Anzeige während des
+  // Bearbeitens stabil bleibt – die Werte selbst kommen immer aus den Konten.
+  const start = useRef<Dayjs>(dayjs().startOf("day")).current;
+
+  const [settings, setSettings] = useState<ForecastState>(() =>
+    parseForecastState(initialForecast),
   );
 
-  const startYear = startDate.year();
-  const years = useMemo(
-    () => Array.from({ length: horizonYears }, (_, i) => startYear + i),
-    [startYear, horizonYears],
+  const changeHandler = useRef(onForecastChange);
+  changeHandler.current = onForecastChange;
+
+  const applySettings = useCallback((next: ForecastState) => {
+    const normalized = normalizeForecastState(next);
+    setSettings(normalized);
+    changeHandler.current?.(normalized);
+  }, []);
+
+  const accountsList = useMemo(() => accounts ?? [], [accounts]);
+
+  // Alles Folgende ist reine Ableitung aus den Konten.
+  const aggregates = useMemo(
+    () => forecastYearAggregates(accountsList, settings, start),
+    [accountsList, settings, start],
   );
 
-  const running = useMemo(
-    () => accounts.filter((entry) => !dayjs(entry.endDatum).isBefore(startDate, "day")),
-    [accounts, startDate],
-  );
-  const runningNominal = round2(running.reduce((sum, entry) => sum + entry.nominal, 0));
-  const runningRate = round2(currentAverageRatePp(running));
-
-  // Prognose-Nominale: nur Beträge, die im jeweiligen Jahr fällig werden.
-  const expiringByYear = useMemo(
-    () => expiringNominalByYear(accounts, startDate, years),
-    [accounts, startDate, years],
+  const splitRows = useMemo(
+    () => forecastSplitRows(aggregates, settings, start),
+    [aggregates, settings, start],
   );
 
-  // Startwerte: gleiches Nominal und gleicher Zinssatz für alle Jahre, abgeleitet aus dem Bestand.
-  useEffect(() => {
-    if (edited) {
-      return;
-    }
-    const nominal = runningNominal > 0 ? runningNominal : 100000;
-    const rate = runningRate > 0 ? runningRate : 2.5;
-    setVariants([
-      {
-        id: "fix",
-        label: "Variante 1 · Zins fix",
-        sharePp: equalSharePp(2),
-        cells: makeCells(years, nominal, rate),
-      },
-      {
-        id: "variabel",
-        label: "Variante 2 · Zins variabel",
-        sharePp: equalSharePp(2),
-        cells: makeCells(years, nominal, rate),
-      },
-    ]);
-  }, [edited, runningNominal, runningRate, years]);
+  const runningAccounts = useMemo(
+    () =>
+      accountsList
+        .filter(
+          (account) =>
+            !dayjs(account.endDatum).startOf("day").isBefore(start, "day"),
+        )
+        .sort(
+          (a, b) =>
+            dayjs(a.endDatum).valueOf() - dayjs(b.endDatum).valueOf(),
+        ),
+    [accountsList, start],
+  );
 
-  // Zustand nach außen melden – der Aufrufer persistiert ihn in `prognose.json`.
-  useEffect(() => {
-    if (!onForecastChange || variants.length === 0) {
-      return;
-    }
-    onForecastChange({
-      version: 1,
-      startDate: startDate.format("YYYY-MM-DD"),
-      horizonYears,
-      variants,
-      savedAt: dayjs().toISOString(),
-    });
-  }, [onForecastChange, variants, horizonYears, startDate]);
+  const runningNominal = round2(
+    runningAccounts.reduce((sum, account) => sum + account.nominal, 0),
+  );
+  const runningRatePp = currentAverageRatePp(runningAccounts);
+  const totalInterest = round2(
+    aggregates.reduce((sum, row) => sum + row.interest, 0),
+  );
+  const totalExpiring = round2(
+    aggregates.reduce((sum, row) => sum + row.expiring, 0),
+  );
+  const shareSum = round2(
+    settings.groups.reduce((sum, group) => sum + group.sharePp, 0),
+  );
+  const shareOk = Math.abs(shareSum - 100) < 0.005;
+  const years = aggregates.map((row) => row.year);
 
-  const changeHorizon = (value: number) => {
-    setHorizonYears(value);
-    const nextYears = Array.from({ length: value }, (_, i) => startYear + i);
-    setVariants((prev) =>
-      prev.map((variant) => {
-        const cells = nextYears.map((year) => {
-          const existing = variant.cells.find((cell) => cell.year === year);
-          const fallback = variant.cells[variant.cells.length - 1];
-          return (
-            existing ?? {
-              year,
-              nominal: fallback?.nominal ?? 0,
-              ratePp: fallback?.ratePp ?? 0,
-            }
-          );
-        });
-        return { ...variant, cells };
-      }),
-    );
-  };
-
-  const updateCell = (
-    variantId: string,
-    year: number,
-    field: "nominal" | "ratePp",
-    value: number,
-  ) => {
-    setEdited(true);
-    setVariants((prev) =>
-      prev.map((variant) =>
-        variant.id === variantId
-          ? {
-              ...variant,
-              cells: variant.cells.map((cell) =>
-                cell.year === year ? { ...cell, [field]: value } : cell,
-              ),
-            }
-          : variant,
+  const updateGroup = (id: string, patch: Partial<ForecastGroup>) => {
+    applySettings({
+      ...settings,
+      groups: settings.groups.map((group) =>
+        group.id === id ? { ...group, ...patch } : group,
       ),
-    );
+    });
   };
 
-  const addVariant = () => {
-    setEdited(true);
-    const template = variants[variants.length - 1];
-    setVariants((prev) => {
-      const count = prev.length + 1;
-      const sharePp = equalSharePp(count);
-      const factor = (100 - sharePp) / 100;
-      return [
-        ...prev.map((variant) => ({ ...variant, sharePp: round2(variant.sharePp * factor) })),
+  const addGroup = () => {
+    const used = settings.groups.reduce((sum, group) => sum + group.sharePp, 0);
+    const rest = Math.max(0, round2(100 - used));
+    applySettings({
+      ...settings,
+      groups: [
+        ...settings.groups,
         {
-          id: nextId("variante"),
-          label: `Gruppe ${count}`,
-          sharePp,
-          cells: template
-            ? template.cells.map((cell) => ({ ...cell }))
-            : makeCells(years, 100000, 2.5),
+          id: nextGroupId(),
+          label: `Variante ${settings.groups.length + 1}`,
+          sharePp: rest,
         },
-      ];
+      ],
     });
   };
 
-  const removeVariant = (variantId: string) => {
-    setEdited(true);
-    setVariants((prev) => {
-      if (prev.length <= 1) {
-        return prev;
-      }
-      const remaining = prev.filter((variant) => variant.id !== variantId);
-      const sum = remaining.reduce((total, variant) => total + variant.sharePp, 0);
-      if (sum <= 0) {
-        return remaining.map((variant) => ({ ...variant, sharePp: equalSharePp(remaining.length) }));
-      }
-      return remaining.map((variant) => ({
-        ...variant,
-        sharePp: round2((variant.sharePp / sum) * 100),
-      }));
+  const removeGroup = (id: string) => {
+    if (settings.groups.length <= 1) return;
+    applySettings({
+      ...settings,
+      groups: settings.groups.filter((group) => group.id !== id),
     });
   };
 
-  const renameVariant = (variantId: string, label: string) => {
-    setEdited(true);
-    setVariants((prev) =>
-      prev.map((variant) => (variant.id === variantId ? { ...variant, label } : variant)),
-    );
-  };
+  /* ----------------------------- Tabellen ------------------------------- */
 
-  const evaluated = useMemo<EvaluatedVariant[]>(
-    () =>
-      variants.map((variant) => {
-        const interests = variant.cells.map((cell) => interestOfCell(cell, startDate));
-        return {
-          variant,
-          interests,
-          total: round2(interests.reduce((sum, value) => sum + value, 0)),
-        };
-      }),
-    [variants, startDate],
-  );
-
-  const yearTotals = useMemo(
-    () =>
-      years.map((_, index) =>
-        round2(evaluated.reduce((sum, entry) => sum + (entry.interests[index] ?? 0), 0)),
-      ),
-    [evaluated, years],
-  );
-
-  const grandTotal = round2(yearTotals.reduce((sum, value) => sum + value, 0));
-
-  /** Summe aller im Horizont ablaufenden Nominale – Grundlage der Aufteilung. */
-  const expiringTotal = round2(expiringByYear.reduce((sum, value) => sum + value, 0));
-
-  const splitSum = round2(variants.reduce((sum, variant) => sum + variant.sharePp, 0));
-
-  const updateShare = (variantId: string, sharePp: number) => {
-    setEdited(true);
-    const value = Math.min(Math.max(sharePp, 0), 100);
-    setVariants((prev) =>
-      prev.map((variant) => (variant.id === variantId ? { ...variant, sharePp: value } : variant)),
-    );
-  };
-
-  const splitRows = useMemo<SplitRow[]>(
-    () =>
-      variants.map((variant) => {
-        // Nominal je Jahr = ablaufende Veranlagungen des Jahres × Prozentanteil.
-        const nominals = years.map((_, index) =>
-          round2(((expiringByYear[index] ?? 0) * variant.sharePp) / 100),
-        );
-        const interests = years.map((year, index) => {
-          const nominal = nominals[index];
-          const cell = variant.cells.find((item) => item.year === year);
-          if (!cell || nominal <= 0) {
-            return 0;
-          }
-          return round2(interestOfCell({ ...cell, nominal }, startDate));
-        });
-        const totalNominal = round2(nominals.reduce((sum, value) => sum + value, 0));
-        const totalInterest = round2(interests.reduce((sum, value) => sum + value, 0));
-        return {
-          id: variant.id,
-          label: variant.label,
-          sharePp: variant.sharePp,
-          nominals,
-          interests,
-          totalNominal,
-          totalInterest,
-        };
-      }),
-    [variants, expiringByYear, startDate, years],
-  );
-
-  const splitYearTotals = useMemo(
-    () =>
-      years.map((_, index) =>
-        round2(splitRows.reduce((sum, row) => sum + (row.interests[index] ?? 0), 0)),
-      ),
-    [splitRows, years],
-  );
-
-  const splitYearNominals = useMemo(
-    () =>
-      years.map((_, index) =>
-        round2(splitRows.reduce((sum, row) => sum + (row.nominals[index] ?? 0), 0)),
-      ),
-    [splitRows, years],
-  );
-
-  const splitTotal = round2(splitRows.reduce((sum, row) => sum + row.totalInterest, 0));
-  const splitNominalTotal = round2(splitRows.reduce((sum, row) => sum + row.totalNominal, 0));
-
-  const variantColumns: TableProps<PlanVariant>["columns"] = [
+  const matrixColumns = [
     {
-      title: "Variante",
+      title: "Kennzahl",
+      dataIndex: "label",
       key: "label",
-      fixed: "left",
-      width: 210,
-      render: (_value, record) => (
-        <Text
-          strong
-          editable={{ onChange: (value) => renameVariant(record.id, value) }}
-          style={{ whiteSpace: "normal" }}
-        >
-          {record.label}
-        </Text>
-      ),
+      width: 200,
+      fixed: "left" as const,
+      render: (value: string) => <Text strong>{value}</Text>,
     },
-    ...years.map((year, index) => ({
-      title: (
-        <Space direction="vertical" size={0} style={{ lineHeight: 1.2 }}>
-          <span>{year}</span>
-          <Text type="secondary" style={{ fontSize: 11, fontWeight: 400 }}>
-            Plan € / %
-          </Text>
-        </Space>
+    ...aggregates.map((row) => ({
+      title: String(row.year),
+      key: `year-${row.year}`,
+      align: "right" as const,
+      render: (_: unknown, record: { key: string; values: number[]; format: (n: number) => string }) => (
+        <span className={record.key === "interest" ? "forecast-cell-interest" : "forecast-cell"}>
+          {record.format(record.values[years.indexOf(row.year)] ?? 0)}
+        </span>
       ),
-      key: String(year),
-      width: 150,
-      render: (_value: unknown, record: PlanVariant) => {
-        const cell = record.cells.find((item) => item.year === year);
-        if (!cell) {
-          return null;
-        }
-        const interest = interestOfCell(cell, startDate);
-        return (
-          <div className="forecast-cell">
-            <InputNumber
-              size="small"
-              controls={false}
-              value={cell.nominal}
-              min={0}
-              step={1000}
-              decimalSeparator=","
-              addonAfter="€"
-              style={{ width: "100%" }}
-              onChange={(value) =>
-                updateCell(record.id, year, "nominal", Number(value ?? 0))
-              }
-            />
-            <InputNumber
-              size="small"
-              controls={false}
-              value={cell.ratePp}
-              min={-5}
-              max={30}
-              step={0.1}
-              decimalSeparator=","
-              addonAfter="%"
-              style={{ width: "100%" }}
-              onChange={(value) =>
-                updateCell(record.id, year, "ratePp", Number(value ?? 0))
-              }
-            />
-            <Text type="secondary" className="forecast-cell-interest">
-              {eur(interest)}
-            </Text>
-          </div>
-        );
-      },
     })),
     {
       title: "Summe",
       key: "total",
-      width: 120,
-      align: "right",
-      render: (_value, record) => {
-        const entry = evaluated.find((item) => item.variant.id === record.id);
-        return <Text strong>{eur(entry?.total ?? 0)}</Text>;
-      },
-    },
-    {
-      title: "",
-      key: "actions",
-      width: 48,
-      render: (_value, record) => (
-        <Tooltip title="Variante entfernen">
-          <Button
-            type="text"
-            size="small"
-            icon={<DeleteOutlined />}
-            onClick={() => removeVariant(record.id)}
-            disabled={variants.length <= 1}
-            aria-label={`Variante ${record.label} entfernen`}
-          />
-        </Tooltip>
-      ),
+      align: "right" as const,
+      render: (_: unknown, record: { total: string }) => <Text strong>{record.total}</Text>,
     },
   ];
 
-  const splitColumns: TableProps<SplitRow>["columns"] = [
+  const matrixData = [
     {
-      title: "Gruppe",
-      key: "label",
-      width: 210,
-      render: (_value, record) => <Text strong>{record.label}</Text>,
+      key: "nominal",
+      label: "Bestand 31.12.",
+      values: aggregates.map((row) => row.nominal),
+      format: formatEur,
+      total: formatEur(round2(aggregates.reduce((sum, row) => sum + row.nominal, 0))),
     },
     {
-      title: "Anteil",
-      key: "share",
-      width: 150,
-      render: (_value, record) => (
-        <InputNumber
-          size="small"
-          min={0}
-          max={100}
-          step={5}
-          decimalSeparator=","
-          addonAfter="%"
-          value={record.sharePp}
-          onChange={(value) => updateShare(record.id, Number(value ?? 0))}
-          style={{ width: 122 }}
-        />
+      key: "rate",
+      label: "Ø-Zins (gewichtet)",
+      values: aggregates.map((row) => row.ratePp),
+      format: formatPct,
+      total: formatPct(runningRatePp),
+    },
+    {
+      key: "interest",
+      label: "Zinsen im Jahr",
+      values: aggregates.map((row) => row.interest),
+      format: formatEur,
+      total: formatEur(totalInterest),
+    },
+    {
+      key: "expiring",
+      label: "Ablaufendes Nominal",
+      values: aggregates.map((row) => row.expiring),
+      format: formatEur,
+      total: formatEur(totalExpiring),
+    },
+    {
+      key: "count",
+      label: "Verzinste Konten",
+      values: aggregates.map((row) => row.accountCount),
+      format: (value: number) => String(Math.round(value)),
+      total: `${runningAccounts.length}`,
+    },
+  ];
+
+  const splitColumns = [
+    {
+      title: "Variante",
+      dataIndex: "label",
+      key: "label",
+      width: 240,
+      fixed: "left" as const,
+      render: (value: string, record: ForecastSplitRow) => (
+        <Space direction="vertical" size={2} style={{ width: "100%" }}>
+          <Text strong>{value}</Text>
+          <Space size={6} className="forecast-split-controls">
+            <InputNumber
+              size="small"
+              min={0}
+              max={100}
+              step={5}
+              value={record.sharePp}
+              addonAfter="%"
+              style={{ width: 110 }}
+              onChange={(next) =>
+                updateGroup(record.id, {
+                  sharePp: Number.isFinite(Number(next)) ? Number(next) : 0,
+                })
+              }
+            />
+            <Tooltip title="Variante entfernen">
+              <Button
+                size="small"
+                type="text"
+                danger
+                icon={<DeleteOutlined />}
+                disabled={settings.groups.length <= 1}
+                onClick={() => removeGroup(record.id)}
+              />
+            </Tooltip>
+          </Space>
+        </Space>
       ),
     },
     ...years.map((year, index) => ({
-      title: (
-        <Space direction="vertical" size={0} style={{ lineHeight: 1.2 }}>
-          <span>{year}</span>
-          <Text type="secondary" style={{ fontSize: 11, fontWeight: 400 }}>
-            Nominal / Zinsen
-          </Text>
+      title: String(year),
+      key: `split-${year}`,
+      align: "right" as const,
+      render: (_: unknown, record: ForecastSplitRow) => (
+        <Space direction="vertical" size={0} style={{ alignItems: "flex-end" }}>
+          <span className="forecast-split-nominal forecast-split-cell">
+            {formatEur(record.nominalByYear[index] ?? 0)}
+          </span>
+          <span className="forecast-split-interest forecast-split-amount">
+            {formatEur(record.interestByYear[index] ?? 0)}
+          </span>
         </Space>
       ),
-      key: `year-${year}`,
-      align: "right" as const,
-      width: 150,
-      render: (_value: unknown, record: SplitRow) => {
-        const nominal = record.nominals[index] ?? 0;
-        return (
-          <div className="forecast-split-cell">
-            <span className="forecast-split-amount forecast-split-nominal">
-              {eur(nominal)}
-            </span>
-            <span className="forecast-split-amount forecast-split-interest">
-              {eur(record.interests[index] ?? 0)}
-            </span>
-          </div>
-        );
-      },
     })),
     {
-      title: "Summe Nominal",
-      key: "nominal-total",
-      align: "right",
-      width: 140,
-      render: (_value, record) => (
-        <Text strong className="forecast-split-amount">
-          {eur(record.totalNominal)}
-        </Text>
-      ),
-    },
-    {
-      title: "Summe Zinsen",
-      key: "interest-total",
-      align: "right",
-      width: 140,
-      render: (_value, record) => (
-        <Text strong className="forecast-split-amount">
-          {eur(record.totalInterest)}
-        </Text>
+      title: "Zinsen gesamt",
+      key: "split-total",
+      align: "right" as const,
+      render: (_: unknown, record: ForecastSplitRow) => (
+        <Text strong>{formatEur(record.interestTotal)}</Text>
       ),
     },
   ];
 
-  const runningColumns: TableProps<KontoData>["columns"] = [
-    { title: "Bank", dataIndex: "bankName", key: "bankName" },
-    { title: "Konto", dataIndex: "kontoNumber", key: "kontoNumber" },
+  const accountColumns = [
     {
-      title: "Laufzeit bis",
-      key: "end",
-      render: (_value, record) => dayjs(record.endDatum).format("DD.MM.YYYY"),
+      title: "Bank",
+      dataIndex: "bankName",
+      key: "bankName",
+      render: (value: string) => <Text strong>{value || "—"}</Text>,
     },
     {
-      title: "Zins",
-      key: "rate",
-      align: "right",
-      render: (_value, record) => pct(record.zinssatz),
+      title: "Konto",
+      dataIndex: "kontoNumber",
+      key: "kontoNumber",
+      render: (value: string) => value || "—",
     },
     {
       title: "Nominal",
+      dataIndex: "nominal",
       key: "nominal",
-      align: "right",
-      render: (_value, record) => eur(record.nominal),
+      align: "right" as const,
+      render: (value: number) => formatEur(value),
+    },
+    {
+      title: "Zins",
+      dataIndex: "zinssatz",
+      key: "zinssatz",
+      align: "right" as const,
+      render: (value: number) => formatPct(value),
+    },
+    {
+      title: "Laufzeit bis",
+      dataIndex: "endDatum",
+      key: "endDatum",
+      align: "right" as const,
+      render: (value: Dayjs | string) => dayjs(value).format("DD.MM.YYYY"),
     },
   ];
+
+  /* ------------------------------- Render ------------------------------- */
 
   return (
     <div className="forecast-page">
       <div className="forecast-head">
-        <Space align="center" size={12}>
-          <Button icon={<ArrowLeftOutlined />} onClick={onBack}>
-            Zurück
-          </Button>
-          <div>
-            <Title level={4} style={{ margin: 0 }}>
-              Prognose
-            </Title>
-            <Text type="secondary">
-              Stichtag {startDate.format("DD.MM.YYYY")} · Plan und Zinssätze je Jahr
-              anpassbar
-            </Text>
-          </div>
+        <Space size="middle" align="center" wrap>
+          {onBack ? (
+            <Button icon={<ArrowLeftOutlined />} onClick={onBack}>
+              Zurück
+            </Button>
+          ) : null}
+          <Title level={4} style={{ margin: 0 }}>
+            Zinsprognose
+          </Title>
+          <Tag color="blue">aus Konten berechnet</Tag>
         </Space>
-        <Space align="center" size={8}>
+        <Space size="middle" align="center" wrap className="forecast-control">
           <Text type="secondary">Horizont</Text>
           <Segmented
-            value={horizonYears}
-            onChange={(value) => changeHorizon(Number(value))}
-            options={[3, 5, 10].map((value) => ({ label: `${value} Jahre`, value }))}
+            options={HORIZON_OPTIONS.map((value) => ({
+              label: `${value} Jahre`,
+              value,
+            }))}
+            value={
+              (HORIZON_OPTIONS as readonly number[]).includes(settings.horizonYears)
+                ? settings.horizonYears
+                : HORIZON_OPTIONS[0]
+            }
+            onChange={(value) =>
+              applySettings({ ...settings, horizonYears: Number(value) })
+            }
           />
+          <Tooltip title="Alle Werte neu aus den Konten berechnen">
+            <Button
+              icon={<ReloadOutlined />}
+              onClick={() => applySettings({ ...settings })}
+            >
+              Neu berechnen
+            </Button>
+          </Tooltip>
         </Space>
       </div>
 
       <div className="stat-grid">
-        <Card className="stat-card">
-          <Statistic title="Laufendes Nominal" value={runningNominal} precision={2} suffix="€" />
-        </Card>
-        <Card className="stat-card">
-          <Statistic title="Ø-Zins laufend" value={runningRate} precision={2} suffix="%" />
-        </Card>
-        <Card className="stat-card forecast-stat-merged">
-          <Statistic title="Zinsen gesamt" value={grandTotal} precision={2} suffix="€" />
+        <Card className="stat-card forecast-stat-merged" size="small">
           <div className="forecast-stat-rows">
             <div className="forecast-stat-row">
-              <span className="forecast-stat-label">Summe oben · Plan je Jahr</span>
-              <span className="forecast-stat-value">{eur(grandTotal)}</span>
+              <span className="forecast-stat-label">Aktuelles Nominal</span>
+              <span className="forecast-stat-value">{formatEur(runningNominal)}</span>
+              <span className="forecast-stat-tag">{runningAccounts.length} Konten</span>
             </div>
             <div className="forecast-stat-row">
-              <span className="forecast-stat-label">Summe unten · Aufteilung nach Prozent</span>
-              <span className="forecast-stat-value">{eur(splitTotal)}</span>
+              <span className="forecast-stat-label">Ø-Zins (gewichtet)</span>
+              <span className="forecast-stat-value">{formatPct(runningRatePp)}</span>
+              <span className="forecast-stat-hint">aus laufenden Konten</span>
             </div>
-            {Math.abs(splitTotal - grandTotal) < 0.01 ? (
-              <Tag className="forecast-stat-tag" color="green">
-                Summen stimmen überein
-              </Tag>
-            ) : (
-              <>
-                <Tag className="forecast-stat-tag">andere Bezugsbasis</Tag>
-                <Text type="secondary" className="forecast-stat-hint">
-                  Oben zählt das geplante Nominal jeder Variante in jedem Jahr, unten nur die im
-                  Jahr ablaufenden Beträge × Prozentanteil. Beide Summen sind deshalb nur gleich,
-                  wenn die Aufteilung exakt dem Plan entspricht.
-                </Text>
-              </>
-            )}
+          </div>
+        </Card>
+        <Card className="stat-card forecast-stat-merged" size="small">
+          <div className="forecast-stat-rows">
+            <div className="forecast-stat-row">
+              <span className="forecast-stat-label">
+                Zinsen {years[0]}–{years[years.length - 1]}
+              </span>
+              <span className="forecast-stat-value">{formatEur(totalInterest)}</span>
+              <span className="forecast-stat-tag">kumuliert</span>
+            </div>
+            <div className="forecast-stat-row">
+              <span className="forecast-stat-label">Ablaufendes Nominal</span>
+              <span className="forecast-stat-value">{formatEur(totalExpiring)}</span>
+              <span className="forecast-stat-hint">im Horizont</span>
+            </div>
+          </div>
+        </Card>
+        <Card className="stat-card forecast-stat-merged" size="small">
+          <div className="forecast-stat-rows">
+            <div className="forecast-stat-row">
+              <span className="forecast-stat-label">Erster Ablauf</span>
+              <span className="forecast-stat-value">
+                {runningAccounts.length > 0
+                  ? dayjs(runningAccounts[0].endDatum).format("DD.MM.YYYY")
+                  : "—"}
+              </span>
+              <span className="forecast-stat-tag">
+                {shareOk ? "Anteile 100 %" : `Anteile ${pct.format(shareSum)} %`}
+              </span>
+            </div>
+            <div className="forecast-stat-row">
+              <span className="forecast-stat-label">Stichtag</span>
+              <span className="forecast-stat-value">{start.format("DD.MM.YYYY")}</span>
+              <span className="forecast-stat-hint">Berechnungsbasis</span>
+            </div>
           </div>
         </Card>
       </div>
 
+      {accountsList.length === 0 ? (
+        <Alert
+          type="info"
+          showIcon
+          message="Keine Konten vorhanden"
+          description="Die Prognose wird ausschließlich aus Ihren Konten berechnet. Legen Sie Konten an, damit hier Werte erscheinen."
+        />
+      ) : null}
+
       <Card
-        className="table-card forecast-card"
-        title="Plan und Zinssätze je Jahr"
-        extra={
-          <Button size="small" icon={<PlusOutlined />} onClick={addVariant}>
-            Variante
-          </Button>
-        }
+        className="forecast-card"
+        title="Jahreswerte aus den Konten"
+        size="small"
+        extra={<Text type="secondary">Nominal, Zins und Zinsertrag je Kalenderjahr</Text>}
       >
-        <Text type="secondary" className="forecast-hint">
-          Jede Zelle enthält den geplanten Betrag („Plan“) und den Zinssatz („%“) für das
-          jeweilige Jahr. Änderungen wirken sofort auf alle Jahreswerte.
-        </Text>
-        <Table<PlanVariant>
+        <Table
           className="forecast-matrix"
-          dataSource={variants}
-          columns={variantColumns}
-          rowKey="id"
-          pagination={false}
           size="small"
-          bordered
+          pagination={false}
           scroll={{ x: "max-content" }}
-          summary={() => (
-            <Table.Summary fixed>
-              <Table.Summary.Row>
-                <Table.Summary.Cell index={0}>
-                  <Text strong>Summe Zinsen</Text>
-                </Table.Summary.Cell>
-                {years.map((year, index) => (
-                  <Table.Summary.Cell key={year} index={index + 1}>
-                    <Text strong>{eur(yearTotals[index] ?? 0)}</Text>
-                  </Table.Summary.Cell>
-                ))}
-                <Table.Summary.Cell index={years.length + 1} align="right">
-                  <Text strong>{eur(grandTotal)}</Text>
-                </Table.Summary.Cell>
-                <Table.Summary.Cell index={years.length + 2}>{null}</Table.Summary.Cell>
-              </Table.Summary.Row>
-            </Table.Summary>
-          )}
+          columns={matrixColumns}
+          dataSource={matrixData}
         />
+        <div className="forecast-hint">
+          Alle Werte dieser Tabelle werden bei jedem Aufruf neu aus den Konten
+          berechnet – gespeichert werden nur Horizont und Variantenanteile.
+        </div>
       </Card>
 
       <Card
-        className="table-card forecast-card"
-        title="Aufteilung nach Prozent"
+        className="forecast-card"
+        title="Aufteilung nach Varianten"
+        size="small"
         extra={
-          <Tooltip title="Nur tatsächlich ablaufende Veranlagungen (Fälligkeit = Laufzeit bis) werden als Prognose-Nominal übernommen und nach den Prozentanteilen auf die Gruppen verteilt. Jahre ohne Fälligkeit bleiben bei 0 €.">
-            <InfoCircleOutlined />
-          </Tooltip>
+          <Space size="small">
+            <Text type="secondary">Anteil am Volumen</Text>
+            <Button size="small" icon={<PlusOutlined />} onClick={addGroup}>
+              Variante
+            </Button>
+          </Space>
         }
       >
-        <Text type="secondary" className="forecast-hint">
-          Nur die Prozentwerte sind Eingaben: Das Prognose-Nominal je Gruppe und Jahr ergibt
-          sich ausschließlich aus den im jeweiligen Jahr ablaufenden Veranlagungen – im
-          Horizont insgesamt {eur(expiringTotal)} –, verteilt nach dem Anteil. Jahre ohne
-          Fälligkeit bleiben bei 0 €. Die Summe der Anteile sollte 100 % betragen.
-        </Text>
-        <div className="forecast-split-controls">
-          <Tag color={Math.abs(splitSum - 100) < 0.01 ? "green" : "orange"}>
-            Summe Anteile: {pct(splitSum)}
-          </Tag>
-        </div>
-        {Math.abs(splitSum - 100) >= 0.01 && (
-          <Alert
-            type="warning"
-            showIcon
-            className="forecast-split-alert"
-            message={`Die Anteile ergeben ${pct(splitSum)} statt 100 %. Die Nominalbeträge werden trotzdem aus den eingegebenen Prozentwerten berechnet.`}
-          />
-        )}
-
-        <Table<SplitRow>
+        {!shareOk ? (
+          <div className="forecast-split-alert">
+            <Alert
+              type="warning"
+              showIcon
+              message={`Summe der Anteile: ${pct.format(shareSum)} %`}
+              description="Die Anteile sollten zusammen 100 % ergeben, damit die Aufteilung dem Kontobestand entspricht."
+            />
+          </div>
+        ) : null}
+        <Table
           className="forecast-split-table"
-          dataSource={splitRows}
-          columns={splitColumns}
-          rowKey="id"
-          pagination={false}
           size="small"
-          bordered
+          pagination={false}
           scroll={{ x: "max-content" }}
-          summary={() => (
-            <Table.Summary fixed>
-            <Table.Summary.Row>
-              <Table.Summary.Cell index={0}>
-                <Text strong>Gesamt</Text>
-              </Table.Summary.Cell>
-              <Table.Summary.Cell index={1}>
-                <Text strong>{pct(splitSum)}</Text>
-              </Table.Summary.Cell>
-              {years.map((year, index) => (
-                <Table.Summary.Cell key={`year-${year}`} index={index + 2} align="right">
-                  <span className="forecast-split-amount forecast-split-nominal">
-                    {eur(splitYearNominals[index] ?? 0)}
-                  </span>
-                </Table.Summary.Cell>
-              ))}
-              <Table.Summary.Cell index={years.length + 2} align="right">
-                <Text strong className="forecast-split-amount">
-                  {eur(splitNominalTotal)}
-                </Text>
-              </Table.Summary.Cell>
-              <Table.Summary.Cell index={years.length + 3} align="right">
-                <Text strong className="forecast-split-amount">
-                  {eur(splitTotal)}
-                </Text>
-              </Table.Summary.Cell>
-            </Table.Summary.Row>
-            <Table.Summary.Row className="forecast-split-year-row">
-              <Table.Summary.Cell index={0} colSpan={2}>
-                <Text strong>Gesamtzinsen pro Jahr</Text>
-              </Table.Summary.Cell>
-              {years.map((year, index) => (
-                <Table.Summary.Cell key={`interest-${year}`} index={index + 2} align="right">
-                  <span className="forecast-split-amount forecast-split-interest">
-                    {eur(splitYearTotals[index] ?? 0)}
-                  </span>
-                </Table.Summary.Cell>
-              ))}
-              <Table.Summary.Cell index={years.length + 2}>{null}</Table.Summary.Cell>
-              <Table.Summary.Cell index={years.length + 3} align="right">
-                <Text strong className="forecast-split-amount">
-                  {eur(splitTotal)}
-                </Text>
-              </Table.Summary.Cell>
-            </Table.Summary.Row>
-            </Table.Summary>
-          )}
+          rowClassName={() => "forecast-split-year-row"}
+          columns={splitColumns}
+          dataSource={splitRows}
+          rowKey="id"
+        />
+        <div className="forecast-hint">
+          Jede Zeile zeigt Nominal und Zinsen (kleiner Wert) für das jeweilige
+          Jahr, berechnet aus Kontobestand × Anteil.
+        </div>
+      </Card>
+
+      <Card
+        className="forecast-card"
+        title="Laufende Veranlagungen"
+        size="small"
+        extra={<Text type="secondary">{runningAccounts.length} Konten</Text>}
+      >
+        <Table
+          size="small"
+          pagination={false}
+          scroll={{ x: "max-content" }}
+          columns={accountColumns}
+          dataSource={runningAccounts}
+          rowKey={(record: KontoData, index?: number) =>
+            String((record as any).id ?? `${record.bankName}-${(record as any).kontoNumber ?? index}`)
+          }
         />
       </Card>
 
-      <Card className="table-card forecast-card" title="Laufende Veranlagungen">
-        {running.length === 0 ? (
-          <Text type="secondary">Keine laufenden Veranlagungen zum Stichtag.</Text>
-        ) : (
-          <Table<KontoData>
-            dataSource={running}
-            columns={runningColumns}
-            rowKey={(record) => `${record.bankName}-${record.kontoNumber}`}
-            pagination={false}
-            size="small"
-          />
-        )}
-      </Card>
-
-      <Text type="secondary" className="forecast-disclaimer">
-        Alle Werte sind annahmenbasiert und nicht garantiert. Gerechnet wird mit einfacher
-        Verzinsung ohne Kapitalisierung; Wiederanlagen erfolgen zum jeweils angegebenen
-        Zinssatz über die gewählte Laufzeit.
-      </Text>
+      <div className="forecast-disclaimer">
+        Die Prognose ist eine Ableitung aus den aktuell erfassten Konten
+        (Nominal, Zinssatz, Laufzeit, Zinsmethode) und dem gewählten Horizont.
+        Es werden keine berechneten Zahlen gespeichert; Änderungen an den Konten
+        verändern die Prognose unmittelbar.
+      </div>
     </div>
   );
 }

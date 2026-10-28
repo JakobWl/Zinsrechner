@@ -205,11 +205,13 @@ function buildHistoryRows(data: KontoData[] | undefined): HistoryRow[] {
  * Diese Zeilen werden hinten angehängt und ausgegraut dargestellt.
  */
 function buildForecastHistoryRows(
+  accounts: KontoData[],
   forecast: ForecastState | null,
   reference?: Dayjs,
 ): HistoryRow[] {
-  const start = reference ?? (forecast ? dayjs(forecast.startDate) : undefined);
-  return forecastYearAggregates(forecast, start).map((row) => ({
+  if (!forecast || accounts.length === 0) return [];
+  const start = reference ?? dayjs();
+  return forecastYearAggregates(accounts, forecast, start).map((row) => ({
     datum: `31.12.${row.year}`,
     bankName: "Prognose",
     menge: row.nominal,
@@ -1367,7 +1369,7 @@ export function AppLayout({
   ];
 
   const historyPreviewRows = useMemo(() => {
-    const forecastRows = buildForecastHistoryRows(forecast);
+    const forecastRows = buildForecastHistoryRows(data, forecast);
     const rows = buildHistoryRows(data);
     if (rows.length === 0) return forecastRows;
     const today = dayjs();

@@ -5612,7 +5612,7 @@ dependencies = [
 
 [[package]]
 name = "zinsrechner"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "dirs 6.0.0",
  "reqwest 0.12.28",
