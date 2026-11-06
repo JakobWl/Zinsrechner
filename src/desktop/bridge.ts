@@ -1,5 +1,4 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { buildHistoryHtml, buildHistoryExcelXml, type HistoryRow, type HistoryGroup } from "./reports";
@@ -99,8 +98,6 @@ export const desktopBridge: DesktopBridge = {
         try { await pending.install(); await relaunch(); return { ok: true }; }
         catch (error) { emit("update-status", { status: "error", message: String(error) }); return { ok: false }; }
       }
-      // Native decorations follow the OS theme; content theme remains under app control.
-      case "update-titlebar-overlay": return;
       default: throw new Error(`Unknown desktop operation: ${channel}`);
     }
   },

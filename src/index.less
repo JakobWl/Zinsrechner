@@ -35,18 +35,10 @@ html[data-theme="dark"] body {
   border-bottom: 2px solid
     var(--ant-color-border-secondary, rgba(5, 5, 5, 0.06));
   z-index: 20;
-  padding-inline: 20px !important;
+  padding-inline: 20px 0 !important;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
   background-color: var(--ant-color-bg-container, #ffffff) !important;
-  -webkit-app-region: drag;
-  app-region: drag;
-}
-
-.app-header button,
-.app-header .ant-btn,
-.app-header .ant-dropdown-trigger {
-  -webkit-app-region: no-drag;
-  app-region: no-drag;
+  user-select: none;
 }
 
 .app-header-brand {
@@ -88,7 +80,41 @@ html[data-theme="dark"] body {
   align-items: center;
   flex: 0 0 auto;
   gap: 2px;
-  padding-right: 140px;
+  margin-left: auto;
+}
+
+.app-window-controls {
+  display: flex;
+  align-self: stretch;
+  flex: 0 0 auto;
+  margin-left: 4px;
+}
+
+.app-window-controls button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ant-color-text, #333);
+  cursor: default;
+}
+
+.app-window-controls button:hover {
+  background: var(--ant-color-fill-secondary, rgba(0, 0, 0, 0.08));
+}
+
+.app-window-controls .app-window-close:hover {
+  background: #e81123;
+  color: #fff;
+}
+
+.app-window-controls button:focus-visible {
+  outline: 2px solid var(--ant-color-primary, #1668dc);
+  outline-offset: -3px;
 }
 
 .app-body {
@@ -333,6 +359,13 @@ html[data-theme="dark"] .table .ant-table-tbody > tr:nth-child(even):not(.row-wa
 html[data-theme="dark"] .table .ant-table-tbody > tr.row-warning > td.ant-table-cell-fix-left,
 html[data-theme="dark"] .table .ant-table-tbody > tr.row-warning > td.ant-table-cell-fix-right {
   background: var(--ant-color-error-bg-hover) !important;
+}
+
+/* Keep row highlighting in CSS so moving the pointer does not update every cell. */
+.table .ant-table-tbody > tr.ant-table-row:not(.row-warning):hover > td,
+.table .ant-table-tbody > tr.ant-table-row:not(.row-warning):hover > td.ant-table-cell-fix-left,
+.table .ant-table-tbody > tr.ant-table-row:not(.row-warning):hover > td.ant-table-cell-fix-right {
+  background: color-mix(in srgb, var(--ant-color-bg-container, #fff) 94%, var(--ant-color-text, #000) 6%) !important;
 }
 
 *:focus-visible {

@@ -26,7 +26,7 @@ The `e2e` feature permits isolated storage and export destinations and a local S
 
 ## Release acceptance
 
-The migration preserves the application features through a Rust desktop backend and the existing React/TypeScript UI and calculation engines. It is not a rewrite of the calculation engines in Rust. Native window decorations follow the operating system theme.
+The migration preserves the application features through a Rust desktop backend and the existing React/TypeScript UI and calculation engines. It is not a rewrite of the calculation engines in Rust. The main window uses in-app window controls that follow the selected application theme; print previews retain native window decorations.
 
 Before publishing the first Windows release:
 

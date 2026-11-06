@@ -328,6 +328,48 @@ test(
 );
 
 test(
+  "native: frameless main window provides working header controls",
+  { timeout: 90000 },
+  async () => {
+    const app = await start("window-controls");
+    try {
+      const d = app.driver;
+      const decorated = await d.executeAsyncScript(`
+        const done = arguments[arguments.length - 1];
+        window.__TAURI_INTERNALS__.invoke("plugin:window|is_decorated", { label: "main" })
+          .then(value => done({ value }), error => done({ error: String(error) }));
+      `);
+      assert.equal(decorated.error, undefined);
+      assert.equal(decorated.value, false);
+      await find(d, '[aria-label="Fenster minimieren"]');
+      await find(d, '[aria-label="Fenster schließen"]');
+      await d.executeScript(`
+        window.__windowErrors = [];
+        window.addEventListener("desktop-error", event => window.__windowErrors.push(event.detail));
+      `);
+      const dragCommand = await d.executeAsyncScript(`
+        const done = arguments[arguments.length - 1];
+        window.__TAURI_INTERNALS__.invoke("plugin:window|start_dragging", { label: "main" })
+          .then(() => done({ ok: true }), error => done({ error: String(error) }));
+      `);
+      assert.deepEqual(dragCommand, { ok: true });
+      await (await find(d, ".app-window-controls button:nth-child(2)")).click();
+      // Xvfb has no window manager, so maximization state is not observable here.
+      // Check the native command and that the click did not report a permission error.
+      const command = await d.executeAsyncScript(`
+        const done = arguments[arguments.length - 1];
+        window.__TAURI_INTERNALS__.invoke("plugin:window|toggle_maximize", { label: "main" })
+          .then(() => done({ ok: true }), error => done({ error: String(error) }));
+      `);
+      assert.deepEqual(command, { ok: true });
+      assert.deepEqual(await d.executeScript("return window.__windowErrors"), []);
+    } finally {
+      await app.close();
+    }
+  },
+);
+
+test(
   "native: PDF and SpreadsheetML exports are written through the real Rust bridge",
   { timeout: 90000 },
   async () => {

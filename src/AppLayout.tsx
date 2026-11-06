@@ -63,6 +63,7 @@ import {
 import { Line } from "react-chartjs-2";
 import packageJson from "../package.json";
 import logoPng from "/logo.png";
+import { WindowControls, handleWindowDrag } from "./components/WindowControls";
 import {
   calculateInterest,
   calculateQuarterlyInterest,
@@ -1690,12 +1691,13 @@ export function AppLayout({
       <a href="#main-content" className="skip-link">
         Zum Inhalt springen
       </a>
-      <Layout.Header className="app-header" role="banner">
+      <Layout.Header className="app-header" role="banner" onMouseDown={handleWindowDrag}>
         <Space align="center" size={10} className="app-header-brand">
           <img
             src={logoPng}
             alt="WiDev Zinsrechner Logo"
             className="app-header-logo-img"
+            draggable={false}
           />
           <div className="app-header-titles">
             <Typography.Title level={4} className="app-header-title">
@@ -1788,6 +1790,7 @@ export function AppLayout({
               </Tooltip>
             </Space.Compact>
         </div>
+        <WindowControls />
       </Layout.Header>
 
       <Layout className="app-body">
@@ -2036,6 +2039,7 @@ export function AppLayout({
             >
               <Table
                 className="table"
+                rowHoverable={false}
                 dataSource={data}
                 rowKey={(record) =>
                   `${record.bankName}-${record.kontoNumber}-${record.startDatum.toISOString()}`

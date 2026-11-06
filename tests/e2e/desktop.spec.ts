@@ -1,16 +1,36 @@
 import { test, expect, type Page } from "@playwright/test";
 
 const account = { bankName: "Migration Bank", kontoNumber: "E2E-001", startDatum: "2025-01-01", endDatum: "2025-12-31", zinssatz: 4, nominal: 10000, dayCountConvention: "actual" };
-async function launch(page: Page, options: { empty?: boolean; corrupt?: boolean; update?: string } = {}) {
+async function launch(page: Page, options: { empty?: boolean; corrupt?: boolean; update?: string; future?: boolean } = {}) {
   await page.addInitScript(({ account, options }) => {
-    const initial = { "konten.json": JSON.stringify(options.empty ? [] : [account]), "prognose.json": "null", "history-groups.json": JSON.stringify([{ name: "Testgruppe", banks: ["Migration Bank"] }]) };
+    const initial = { "konten.json": JSON.stringify(options.empty ? [] : [{ ...account, endDatum: options.future ? "2099-12-31" : account.endDatum }]), "prognose.json": "null", "history-groups.json": JSON.stringify([{ name: "Testgruppe", banks: ["Migration Bank"] }]) };
     const files = () => JSON.parse(localStorage.getItem("__files") || JSON.stringify(initial));
     const calls = () => JSON.parse(localStorage.getItem("__calls") || "[]");
     (window as any).isTauri = true;
+    let nextCallback = 0;
+    let maximized = false;
+    const callbacks: Record<number, (event: any) => void> = {};
+    (window as any).__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} };
     (window as any).__TAURI_INTERNALS__ = {
+      metadata: { currentWindow: { label: "main" } },
+      transformCallback: (callback: (event: any) => void) => {
+        const id = ++nextCallback;
+        callbacks[id] = callback;
+        return id;
+      },
       invoke: async (command: string, args: any = {}) => {
         const log = calls(); log.push({ command, args }); localStorage.setItem("__calls", JSON.stringify(log));
         switch (command) {
+          case "plugin:event|listen": return args.handler;
+          case "plugin:event|unlisten": delete callbacks[args.eventId]; return;
+          case "plugin:window|is_maximized": return maximized;
+          case "plugin:window|toggle_maximize":
+            maximized = !maximized;
+            Object.values(callbacks).forEach(callback => callback({ payload: { width: 1600, height: 800 } }));
+            return;
+          case "plugin:window|start_dragging":
+          case "plugin:window|minimize":
+          case "plugin:window|close": return;
           case "read_document":
             if (options.corrupt && args.name === "konten.json") throw new Error("Invalid saved JSON");
             return files()[args.name];
@@ -43,6 +63,71 @@ async function history(page: Page) {
   await page.getByText("Vorschau anzeigen", { exact: true }).click();
   return page.getByRole("dialog");
 }
+test("window controls and header drag use the native window API", async ({ page }) => {
+  await launch(page);
+  const controls = page.getByRole("group", { name: "Fenstersteuerung" });
+  const commands = () => page.evaluate(() => JSON.parse(localStorage.getItem("__calls") || "[]").map((call: any) => call.command));
+  await controls.getByRole("button", { name: "Fenster maximieren" }).click();
+  await expect(controls.getByRole("button", { name: "Fenster wiederherstellen" })).toBeVisible();
+  await controls.getByRole("button", { name: "Fenster wiederherstellen" }).click();
+  await expect(controls.getByRole("button", { name: "Fenster maximieren" })).toBeVisible();
+  await controls.getByRole("button", { name: "Fenster minimieren" }).click();
+  await controls.getByRole("button", { name: "Fenster schließen" }).click();
+  const beforeDrag = await commands();
+  expect(beforeDrag.filter((command: string) => command === "plugin:window|start_dragging")).toHaveLength(0);
+  await page.locator(".app-header-title").click();
+  await expect.poll(commands).toContain("plugin:window|start_dragging");
+  expect(await commands()).toEqual(expect.arrayContaining([
+    "plugin:window|toggle_maximize", "plugin:window|minimize", "plugin:window|close",
+  ]));
+});
+
+test("header actions and window controls fit at the minimum window width", async ({ page }) => {
+  await page.setViewportSize({ width: 800, height: 600 });
+  await launch(page, { update: "99.0.0.0" });
+  const buttons = [
+    page.getByRole("button", { name: "Prognose öffnen" }),
+    page.getByRole("button", { name: "Aktualisieren" }),
+    page.getByRole("button", { name: "Chronologische Historie aller Banken öffnen" }),
+    page.getByRole("button", { name: "Fenster minimieren" }),
+    page.getByRole("button", { name: "Fenster maximieren" }),
+    page.getByRole("button", { name: "Fenster schließen" }),
+  ];
+  for (const button of buttons) {
+    await expect(button).toBeVisible();
+    const box = await button.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.x).toBeGreaterThanOrEqual(0);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(800);
+    const centerHasButton = await button.evaluate((element) => {
+      const box = element.getBoundingClientRect();
+      return element.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2));
+    });
+    expect(centerHasButton).toBe(true);
+  }
+});
+
+test("account row hover keeps its highlight without React hover updates", async ({ page }) => {
+  await launch(page, { future: true });
+  const row = page.locator(".table .ant-table-tbody tr.ant-table-row").first();
+  const cell = row.locator("td").first();
+  await page.mouse.move(0, 0);
+  const before = await cell.evaluate(element => getComputedStyle(element).backgroundColor);
+  await cell.hover();
+  await expect.poll(() => cell.evaluate(element => getComputedStyle(element).backgroundColor)).not.toBe(before);
+  await expect(row.locator(".ant-table-cell-row-hover")).toHaveCount(0);
+});
+
+test("expired account warning remains visible on hover", async ({ page }) => {
+  await launch(page);
+  const row = page.locator(".table .ant-table-tbody tr.row-warning").first();
+  const cell = row.locator("td").first();
+  await page.mouse.move(0, 0);
+  const warning = await cell.evaluate(element => getComputedStyle(element).backgroundColor);
+  await cell.hover();
+  await expect.poll(() => cell.evaluate(element => getComputedStyle(element).backgroundColor)).toBe(warning);
+});
+
 test("accounts retain the baseline interest result, support editing and persist after reload", async ({ page }) => {
   await launch(page);
   await expect(page.locator(".stat-card").filter({ hasText: "Gesamtzinsen (€)" })).toContainText("400.00");
