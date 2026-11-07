@@ -3,6 +3,7 @@ import {
   Alert,
   Button,
   Card,
+  Collapse,
   InputNumber,
   Segmented,
   Space,
@@ -15,10 +16,9 @@ import {
   ArrowLeftOutlined,
   DeleteOutlined,
   PlusOutlined,
-  ReloadOutlined,
 } from "@ant-design/icons";
 import dayjs, { Dayjs } from "dayjs";
-import type { KontoData } from "../utils/interestCalculation";
+import { calculateInterest, type KontoData } from "../utils/interestCalculation";
 import {
   currentAverageRatePp,
   expiringNominalByYear,
@@ -39,6 +39,7 @@ export interface ForecastGroup {
   id: string;
   label: string;
   sharePp: number;
+  ratePp?: number;
 }
 
 /** Persistierter Zustand: ausschließlich Einstellungen. */
@@ -91,6 +92,9 @@ function normalizeForecastState(state: ForecastState): ForecastState {
       sharePp: Number.isFinite(Number(group.sharePp))
         ? Math.min(100, Math.max(0, round2(Number(group.sharePp))))
         : 0,
+      ratePp: group.ratePp != null && Number.isFinite(Number(group.ratePp))
+        ? round2(Number(group.ratePp))
+        : undefined,
     }));
 
   return {
@@ -180,21 +184,13 @@ function overlapBounds(start: Dayjs, end: Dayjs, year: number) {
 export function accountInterestInYear(
   account: KontoData,
   year: number,
-  start: Dayjs,
+  _start: Dayjs,
 ): number {
   const accountStart = dayjs(account.startDatum).startOf("day");
   const accountEnd = dayjs(account.endDatum).startOf("day");
   const overlap = overlapBounds(accountStart, accountEnd, year);
   if (!overlap) return 0;
-  const from = overlap.from.isBefore(start, "day") ? start : overlap.from;
-  if (overlap.to.isBefore(from, "day")) return 0;
-
-  const days = overlap.to.diff(from, "day") + 1;
-  const yearDays = overlap.yearEnd.diff(overlap.yearStart, "day") + 1;
-  if (days <= 0 || yearDays <= 0) return 0;
-
-  const interest = account.nominal * (account.zinssatz / 100) * (days / yearDays);
-  return round2(interest);
+  return calculateInterest(account, overlap.from, overlap.to);
 }
 
 /** Bestand (Nominal) der zu einem Stichtag laufenden Konten. */
@@ -268,35 +264,68 @@ export interface ForecastSplitRow {
   id: string;
   label: string;
   sharePp: number;
+  ratePp: number;
   nominalByYear: number[];
   interestByYear: number[];
   nominalTotal: number;
   interestTotal: number;
 }
 
+export function forecastYearAccountRows(accounts: KontoData[], year: number) {
+  const snapshot = dayjs(`${year}-12-31`).startOf("day");
+  return accounts.flatMap((account, index) => {
+    const accountStart = dayjs(account.startDatum).startOf("day");
+    const accountEnd = dayjs(account.endDatum).startOf("day");
+    const overlap = overlapBounds(accountStart, accountEnd, year);
+    if (!overlap) return [];
+
+    return [{
+      key: index,
+      account,
+      from: overlap.from,
+      to: overlap.to,
+      interest: calculateInterest(account, overlap.from, overlap.to),
+      yearEndNominal: accountEnd.isBefore(snapshot, "day") ? 0 : account.nominal,
+    }];
+  });
+}
+
+type ForecastYearAccountRow = ReturnType<typeof forecastYearAccountRows>[number];
+
 /** Aufteilung je Gruppe: Nominal und Zinsen werden nur umgelegt, nicht gespeichert. */
 export function forecastSplitRows(
   aggregates: ForecastYearAggregate[],
   state: ForecastState,
   start: Dayjs | string,
+  accounts: KontoData[] = [],
+  defaultRatePp = 0,
 ): ForecastSplitRow[] {
   const anchor = dayjs(start).startOf("day");
   return normalizeForecastState(state).groups.map((group) => {
     const factor = group.sharePp / 100;
-    const nominalByYear = aggregates.map((row) => round2(row.nominal * factor));
-    const interestByYear = aggregates.map((row) => {
-      const snapshot = dayjs(`${row.year}-12-31`).startOf("day");
-      const yearStart = dayjs(`${row.year}-01-01`).startOf("day");
-      const from = anchor.isAfter(yearStart) ? anchor : yearStart;
-      if (from.isAfter(snapshot, "day")) return 0;
-      const days = snapshot.diff(from, "day") + 1;
-      const yearDays = snapshot.diff(yearStart, "day") + 1;
-      return round2(row.nominal * factor * (row.ratePp / 100) * (days / yearDays));
+    const ratePp = group.ratePp ?? defaultRatePp;
+    let accumulatedNominal = 0;
+    const nominalByYear = aggregates.map((row) => {
+      accumulatedNominal += row.expiring;
+      return round2(accumulatedNominal * factor);
     });
+    const interestByYear = aggregates.map((row) => round2(accounts.reduce((sum, account) => {
+      const maturity = dayjs(account.endDatum).startOf("day");
+      const yearStart = dayjs(`${row.year}-01-01`).startOf("day");
+      const yearEnd = dayjs(`${row.year}-12-31`).startOf("day");
+      const reinvestmentStart = maturity.add(1, "day");
+      if (reinvestmentStart.isAfter(yearEnd, "day") || maturity.isBefore(anchor, "day")) return sum;
+      return sum + calculateInterest(
+        { ...account, nominal: account.nominal * factor, zinssatz: ratePp, dayCountConvention: "actual" },
+        reinvestmentStart.isAfter(yearStart, "day") ? reinvestmentStart : yearStart,
+        yearEnd,
+      );
+    }, 0)));
     return {
       id: group.id,
       label: group.label,
       sharePp: group.sharePp,
+      ratePp,
       nominalByYear,
       interestByYear,
       nominalTotal: round2(nominalByYear.reduce((sum, value) => sum + value, 0)),
@@ -313,6 +342,13 @@ const eur = new Intl.NumberFormat("de-DE", {
   style: "currency",
   currency: "EUR",
   maximumFractionDigits: 0,
+});
+
+const eurDetailed = new Intl.NumberFormat("de-DE", {
+  style: "currency",
+  currency: "EUR",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
 });
 
 const pct = new Intl.NumberFormat("de-DE", {
@@ -371,8 +407,14 @@ export default function ForecastView({
   );
 
   const splitRows = useMemo(
-    () => forecastSplitRows(aggregates, settings, start),
-    [aggregates, settings, start],
+    () => forecastSplitRows(
+      aggregates,
+      settings,
+      start,
+      accountsList,
+      currentAverageRatePp(accountsList.filter((account) => !dayjs(account.endDatum).isBefore(start, "day"))),
+    ),
+    [aggregates, settings, start, accountsList],
   );
 
   const runningAccounts = useMemo(
@@ -505,6 +547,24 @@ export default function ForecastView({
     },
   ];
 
+  const accountInterestByYear = aggregates.map((row) => row.interest);
+  const variantInterestByYear = years.map((_, index) =>
+    round2(splitRows.reduce((sum, row) => sum + (row.interestByYear[index] ?? 0), 0)),
+  );
+  const combinedInterestData = [
+    { key: "accounts", label: "Zinsen aus Konten", values: accountInterestByYear },
+    { key: "variants", label: "Zinsen aus Varianten", values: variantInterestByYear },
+    {
+      key: "interest",
+      label: "Zinsen gesamt",
+      values: accountInterestByYear.map((value, index) => round2(value + variantInterestByYear[index])),
+    },
+  ].map((row) => ({
+    ...row,
+    format: (value: number) => eurDetailed.format(value),
+    total: eurDetailed.format(round2(row.values.reduce((sum, value) => sum + value, 0))),
+  }));
+
   const splitColumns = [
     {
       title: "Variante",
@@ -530,6 +590,21 @@ export default function ForecastView({
                 })
               }
             />
+            <Tooltip title="Zinssatz der Wiederanlage">
+              <InputNumber
+                aria-label={`Wiederanlagezins ${record.label}`}
+                size="small"
+                step={0.1}
+                value={record.ratePp}
+                addonAfter="% p.a."
+                style={{ width: 140 }}
+                onChange={(next) => {
+                  if (next != null && Number.isFinite(Number(next))) {
+                    updateGroup(record.id, { ratePp: Number(next) });
+                  }
+                }}
+              />
+            </Tooltip>
             <Tooltip title="Variante entfernen">
               <Button
                 size="small"
@@ -551,10 +626,10 @@ export default function ForecastView({
       render: (_: unknown, record: ForecastSplitRow) => (
         <Space direction="vertical" size={0} style={{ alignItems: "flex-end" }}>
           <span className="forecast-split-nominal forecast-split-cell">
-            {formatEur(record.nominalByYear[index] ?? 0)}
+            {eurDetailed.format(record.nominalByYear[index] ?? 0)}
           </span>
           <span className="forecast-split-interest forecast-split-amount">
-            {formatEur(record.interestByYear[index] ?? 0)}
+            {eurDetailed.format(record.interestByYear[index] ?? 0)}
           </span>
         </Space>
       ),
@@ -564,7 +639,7 @@ export default function ForecastView({
       key: "split-total",
       align: "right" as const,
       render: (_: unknown, record: ForecastSplitRow) => (
-        <Text strong>{formatEur(record.interestTotal)}</Text>
+        <Text strong>{eurDetailed.format(record.interestTotal)}</Text>
       ),
     },
   ];
@@ -572,36 +647,61 @@ export default function ForecastView({
   const accountColumns = [
     {
       title: "Bank",
-      dataIndex: "bankName",
+      dataIndex: ["account", "bankName"],
       key: "bankName",
       render: (value: string) => <Text strong>{value || "—"}</Text>,
     },
     {
       title: "Konto",
-      dataIndex: "kontoNumber",
+      dataIndex: ["account", "kontoNumber"],
       key: "kontoNumber",
       render: (value: string) => value || "—",
     },
     {
       title: "Nominal",
-      dataIndex: "nominal",
+      dataIndex: ["account", "nominal"],
       key: "nominal",
       align: "right" as const,
-      render: (value: number) => formatEur(value),
+      render: (value: number) => eurDetailed.format(value),
     },
     {
       title: "Zins",
-      dataIndex: "zinssatz",
+      dataIndex: ["account", "zinssatz"],
       key: "zinssatz",
       align: "right" as const,
       render: (value: number) => formatPct(value),
     },
     {
-      title: "Laufzeit bis",
-      dataIndex: "endDatum",
-      key: "endDatum",
+      title: "Methode",
+      dataIndex: ["account", "dayCountConvention"],
+      key: "method",
+      render: (value?: string) => value === "30/360" ? "30/360" : "Actual",
+    },
+    {
+      title: "Verzinst von",
+      dataIndex: "from",
+      key: "from",
+      render: (value: Dayjs) => value.format("DD.MM.YYYY"),
+    },
+    {
+      title: "Verzinst bis",
+      dataIndex: "to",
+      key: "to",
+      render: (value: Dayjs) => value.format("DD.MM.YYYY"),
+    },
+    {
+      title: "Zinsen im Jahr",
+      dataIndex: "interest",
+      key: "interest",
       align: "right" as const,
-      render: (value: Dayjs | string) => dayjs(value).format("DD.MM.YYYY"),
+      render: (value: number) => eurDetailed.format(value),
+    },
+    {
+      title: "Bestand 31.12.",
+      dataIndex: "yearEndNominal",
+      key: "yearEndNominal",
+      align: "right" as const,
+      render: (value: number) => eurDetailed.format(value),
     },
   ];
 
@@ -610,7 +710,7 @@ export default function ForecastView({
   return (
     <div className="forecast-page">
       <div className="forecast-head">
-        <Space size="middle" align="center" wrap>
+        <Space size="middle" align="center">
           {onBack ? (
             <Button icon={<ArrowLeftOutlined />} onClick={onBack}>
               Zurück
@@ -637,14 +737,6 @@ export default function ForecastView({
               applySettings({ ...settings, horizonYears: Number(value) })
             }
           />
-          <Tooltip title="Alle Werte neu aus den Konten berechnen">
-            <Button
-              icon={<ReloadOutlined />}
-              onClick={() => applySettings({ ...settings })}
-            >
-              Neu berechnen
-            </Button>
-          </Tooltip>
         </Space>
       </div>
 
@@ -701,6 +793,17 @@ export default function ForecastView({
         </Card>
       </div>
 
+      <Card className="forecast-card" title="Zinsen pro Jahr" size="small">
+        <Table
+          className="forecast-matrix"
+          size="small"
+          pagination={false}
+          scroll={{ x: "max-content" }}
+          columns={matrixColumns}
+          dataSource={combinedInterestData}
+        />
+      </Card>
+
       {accountsList.length === 0 ? (
         <Alert
           type="info"
@@ -724,10 +827,6 @@ export default function ForecastView({
           columns={matrixColumns}
           dataSource={matrixData}
         />
-        <div className="forecast-hint">
-          Alle Werte dieser Tabelle werden bei jedem Aufruf neu aus den Konten
-          berechnet – gespeichert werden nur Horizont und Variantenanteile.
-        </div>
       </Card>
 
       <Card
@@ -736,7 +835,7 @@ export default function ForecastView({
         size="small"
         extra={
           <Space size="small">
-            <Text type="secondary">Anteil am Volumen</Text>
+            <Text type="secondary">Anteil am fälligen Nominal</Text>
             <Button size="small" icon={<PlusOutlined />} onClick={addGroup}>
               Variante
             </Button>
@@ -749,7 +848,7 @@ export default function ForecastView({
               type="warning"
               showIcon
               message={`Summe der Anteile: ${pct.format(shareSum)} %`}
-              description="Die Anteile sollten zusammen 100 % ergeben, damit die Aufteilung dem Kontobestand entspricht."
+              description="Die Anteile sollten zusammen 100 % ergeben, damit die Aufteilung dem fälligen Nominal entspricht."
             />
           </div>
         ) : null}
@@ -762,37 +861,58 @@ export default function ForecastView({
           columns={splitColumns}
           dataSource={splitRows}
           rowKey="id"
+          summary={() => (
+            <Table.Summary>
+              <Table.Summary.Row className="forecast-split-year-row">
+                <Table.Summary.Cell index={0}><Text strong>Summe</Text></Table.Summary.Cell>
+                {years.map((year, index) => (
+                  <Table.Summary.Cell key={year} index={index + 1} align="right">
+                    <Space direction="vertical" size={0} style={{ alignItems: "flex-end" }}>
+                      <Text strong>{eurDetailed.format(round2(splitRows.reduce((sum, row) => sum + row.nominalByYear[index], 0)))}</Text>
+                      <Text strong className="forecast-split-amount">{eurDetailed.format(round2(splitRows.reduce((sum, row) => sum + row.interestByYear[index], 0)))}</Text>
+                    </Space>
+                  </Table.Summary.Cell>
+                ))}
+                <Table.Summary.Cell index={years.length + 1} align="right">
+                  <Text strong>{eurDetailed.format(round2(splitRows.reduce((sum, row) => sum + row.interestTotal, 0)))}</Text>
+                </Table.Summary.Cell>
+              </Table.Summary.Row>
+            </Table.Summary>
+          )}
         />
-        <div className="forecast-hint">
-          Jede Zeile zeigt Nominal und Zinsen (kleiner Wert) für das jeweilige
-          Jahr, berechnet aus Kontobestand × Anteil.
-        </div>
       </Card>
 
       <Card
         className="forecast-card"
-        title="Laufende Veranlagungen"
+        title="Veranlagungen nach Jahr"
         size="small"
-        extra={<Text type="secondary">{runningAccounts.length} Konten</Text>}
       >
-        <Table
-          size="small"
-          pagination={false}
-          scroll={{ x: "max-content" }}
-          columns={accountColumns}
-          dataSource={runningAccounts}
-          rowKey={(record: KontoData, index?: number) =>
-            String((record as any).id ?? `${record.bankName}-${(record as any).kontoNumber ?? index}`)
-          }
+        <Collapse
+          defaultActiveKey={[String(years[0])]}
+          items={aggregates.map((aggregate) => ({
+            key: String(aggregate.year),
+            label: String(aggregate.year),
+            children: (
+              <Table<ForecastYearAccountRow>
+                size="small"
+                pagination={false}
+                scroll={{ x: "max-content" }}
+                columns={accountColumns}
+                dataSource={forecastYearAccountRows(accountsList, aggregate.year)}
+                rowKey="key"
+                summary={() => (
+                  <Table.Summary.Row>
+                    <Table.Summary.Cell index={0} colSpan={7}><Text strong>Summe</Text></Table.Summary.Cell>
+                    <Table.Summary.Cell index={7} align="right"><Text strong>{eurDetailed.format(aggregate.interest)}</Text></Table.Summary.Cell>
+                    <Table.Summary.Cell index={8} align="right"><Text strong>{eurDetailed.format(aggregate.nominal)}</Text></Table.Summary.Cell>
+                  </Table.Summary.Row>
+                )}
+              />
+            ),
+          }))}
         />
       </Card>
 
-      <div className="forecast-disclaimer">
-        Die Prognose ist eine Ableitung aus den aktuell erfassten Konten
-        (Nominal, Zinssatz, Laufzeit, Zinsmethode) und dem gewählten Horizont.
-        Es werden keine berechneten Zahlen gespeichert; Änderungen an den Konten
-        verändern die Prognose unmittelbar.
-      </div>
     </div>
   );
 }

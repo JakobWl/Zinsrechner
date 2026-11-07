@@ -112,7 +112,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_process::init())
-        .plugin(tauri_plugin_window_state::Builder::default().with_state_flags(tauri_plugin_window_state::StateFlags::all() & !tauri_plugin_window_state::StateFlags::VISIBLE).build())
+        .plugin(tauri_plugin_window_state::Builder::default().with_state_flags(tauri_plugin_window_state::StateFlags::all() & !(tauri_plugin_window_state::StateFlags::VISIBLE | tauri_plugin_window_state::StateFlags::DECORATIONS)).build())
         .setup(|app| {
             if app.config().plugins.0.get("updater").and_then(|v| v.get("pubkey")).and_then(Value::as_str).is_some_and(|key| !key.is_empty()) {
                 app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;

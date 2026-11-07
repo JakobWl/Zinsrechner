@@ -11,9 +11,10 @@ function reportWindowError(error: unknown) {
 
 export function handleWindowDrag(event: MouseEvent<HTMLElement>) {
   if (!isTauri() || event.button !== 0) return;
+  if (!event.currentTarget.contains(event.target as Node)) return;
   if (
     (event.target as Element).closest(
-      "button, a, input, select, textarea, [role='button']",
+      "button, a, input, select, textarea, [role='button'], [role^='menuitem']",
     )
   )
     return;

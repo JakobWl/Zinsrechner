@@ -3,6 +3,7 @@ import dayjs from "dayjs";
 import {
   defaultForecastState,
   forecastSplitRows,
+  forecastYearAccountRows,
   forecastYearAggregates,
   parseForecastState,
 } from "./components/ForecastView";
@@ -47,6 +48,38 @@ describe("Prognose wird immer aus den Konten abgeleitet", () => {
     // 2028: nur noch Nordbank-Konten (3001 + 3002)
     expect(rows[2].nominal).toBe(30000);
     expect(rows[2].expiring).toBe(15000); // Ablauf 1002 am 31.03.2028
+  });
+
+  it("berechnet das gesamte Kalenderjahr mit der Zinsmethode des Kontos", () => {
+    const state = { ...defaultForecastState(), horizonYears: 3 };
+    const fullYear = account({ startDatum: dayjs("2025-01-01"), endDatum: dayjs("2030-12-31"), nominal: 10000, zinssatz: 3 });
+    const partialYear = account({ startDatum: dayjs("2026-01-01"), endDatum: dayjs("2026-06-30"), nominal: 10000, zinssatz: 3.6, dayCountConvention: "30/360" });
+    const rows = forecastYearAggregates([fullYear, partialYear], state, ANCHOR);
+
+    expect(rows[0].interest).toBe(479);
+    expect(rows[1].interest).toBe(300);
+    expect(rows[2].interest).toBe(300);
+  });
+
+  it("hält den Bestand ohne Fälligkeiten im Prognosezeitraum konstant", () => {
+    const state = { ...defaultForecastState(), horizonYears: 5 };
+    const continuing = accounts.map((entry) => ({ ...entry, endDatum: dayjs("2035-12-31") }));
+    const rows = forecastYearAggregates(continuing, state, ANCHOR);
+
+    expect(rows.map((row) => row.nominal)).toEqual(Array(5).fill(totalNominal));
+    expect(rows.map((row) => row.expiring)).toEqual(Array(5).fill(0));
+  });
+
+  it("schlüsselt Jahreszinsen und Bestand je Konto nachvollziehbar auf", () => {
+    const state = { ...defaultForecastState(), horizonYears: 5 };
+    const aggregates = forecastYearAggregates(accounts, state, ANCHOR);
+    const rows = forecastYearAccountRows(accounts, 2027);
+
+    expect(rows).toHaveLength(4);
+    expect(rows.find((row) => row.account.kontoNumber === "2001").yearEndNominal).toBe(0);
+    expect(rows.find((row) => row.account.kontoNumber === "2001").interest).toBeGreaterThan(0);
+    expect(rows.reduce((sum, row) => sum + row.interest, 0)).toBeCloseTo(aggregates[1].interest, 2);
+    expect(rows.reduce((sum, row) => sum + row.yearEndNominal, 0)).toBe(aggregates[1].nominal);
   });
 
   it("reagiert sofort auf geänderte Kontodaten (kein Cache, keine gespeicherten Zellen)", () => {
@@ -106,8 +139,42 @@ describe("Prognose wird immer aus den Konten abgeleitet", () => {
     const split = forecastSplitRows(aggregates, state, ANCHOR);
 
     expect(split).toHaveLength(2);
-    expect(split[0].nominalByYear[0]).toBeCloseTo(aggregates[0].nominal * 0.6, 2);
-    expect(split[1].nominalByYear[0]).toBeCloseTo(aggregates[0].nominal * 0.4, 2);
-    expect(split[0].nominalByYear[0] + split[1].nominalByYear[0]).toBeCloseTo(aggregates[0].nominal, 2);
+    expect(split[0].nominalByYear[0]).toBeCloseTo(aggregates[0].expiring * 0.6, 2);
+    expect(split[1].nominalByYear[0]).toBeCloseTo(aggregates[0].expiring * 0.4, 2);
+    expect(split[0].nominalByYear[0] + split[1].nominalByYear[0]).toBeCloseTo(aggregates[0].expiring, 2);
+  });
+
+  it("berechnet Varianten-Zinsen ab dem Tag nach Fälligkeit", () => {
+    const state = { ...defaultForecastState(), horizonYears: 3, groups: [{ id: "base", label: "Basis", sharePp: 100, ratePp: 3.65 }] };
+    const expiringAccount = account({
+      startDatum: dayjs("2027-01-01"),
+      endDatum: dayjs("2027-06-30"),
+      nominal: 10000,
+    });
+    const aggregates = forecastYearAggregates([expiringAccount], state, ANCHOR);
+    const [split] = forecastSplitRows(aggregates, state, ANCHOR, [expiringAccount]);
+
+    expect(aggregates[1].nominal).toBe(0);
+    expect(aggregates[1].interest).toBeGreaterThan(0);
+    expect(split.nominalByYear[1]).toBe(expiringAccount.nominal);
+    expect(split.nominalByYear[2]).toBe(expiringAccount.nominal);
+    expect(split.interestByYear[1]).toBe(184);
+    expect(split.interestByYear[2]).toBe(365);
+    expect(split.interestTotal).toBe(549);
+  });
+
+  it("führt mehrere Fälligkeiten anteilig fort und ignoriert frühere Abläufe", () => {
+    const state = { ...defaultForecastState(), horizonYears: 3, groups: [{ id: "base", label: "Basis", sharePp: 50, ratePp: 2 }] };
+    const entries = [
+      account({ endDatum: dayjs("2026-06-30"), nominal: 5000 }),
+      account({ endDatum: dayjs("2026-12-31"), nominal: 10000 }),
+      account({ endDatum: dayjs("2027-06-30"), nominal: 20000 }),
+    ];
+    const aggregates = forecastYearAggregates(entries, state, ANCHOR);
+    const [split] = forecastSplitRows(aggregates, state, ANCHOR, entries);
+
+    expect(split.nominalByYear).toEqual([5000, 15000, 15000]);
+    expect(split.interestByYear[0]).toBe(0);
+    expect(split.interestByYear[2]).toBe(300);
   });
 });

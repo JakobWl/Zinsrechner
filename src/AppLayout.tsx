@@ -7,6 +7,7 @@ import React, {
 } from "react";
 import dayjs, { Dayjs } from "dayjs";
 import isLeapYear from "dayjs/plugin/isLeapYear";
+import customParseFormat from "dayjs/plugin/customParseFormat";
 
 import {
   Button,
@@ -76,6 +77,7 @@ import ForecastView, {
 import type { ForecastState } from "./components/ForecastView";
 
 dayjs.extend(isLeapYear);
+dayjs.extend(customParseFormat);
 
 ChartJS.register(
   CategoryScale,
@@ -127,6 +129,7 @@ interface HistoryRow {
   aenderung: "up" | "down" | "none";
   /** Prognose-Zeile (aus `prognose.json`) – wird ausgegraut dargestellt. */
   prognose?: boolean;
+  groupAmounts?: Record<string, number>;
 }
 
 /**
@@ -205,17 +208,46 @@ function buildHistoryRows(data: KontoData[] | undefined): HistoryRow[] {
  * geplanten Nominal, dem gewichteten Zinssatz und den Zinsen des Jahres.
  * Diese Zeilen werden hinten angehängt und ausgegraut dargestellt.
  */
+function reinvestedNominalAt(
+  accounts: KontoData[],
+  start: Dayjs,
+  date: Dayjs,
+  share: number,
+  includeMaturityDate: boolean,
+): number {
+  const nominal = accounts.reduce((sum, account) => {
+    const maturity = dayjs(account.endDatum).startOf("day");
+    if (maturity.isBefore(start, "day") || maturity.isAfter(date, "day")) return sum;
+    if (!includeMaturityDate && maturity.isSame(date, "day")) return sum;
+    return sum + account.nominal * share;
+  }, 0);
+  return Math.round(nominal * 100) / 100;
+}
+
 function buildForecastHistoryRows(
   accounts: KontoData[],
   forecast: ForecastState | null,
+  groups: HistoryGroup[],
   reference?: Dayjs,
 ): HistoryRow[] {
-  if (!forecast || accounts.length === 0) return [];
-  const start = reference ?? dayjs();
-  return forecastYearAggregates(accounts, forecast, start).map((row) => ({
+  if (accounts.length === 0) return [];
+  const start = (reference ?? dayjs()).startOf("day");
+  const settings = { ...parseForecastState(forecast), horizonYears: 10 };
+  const share = settings.groups.reduce((sum, group) => sum + group.sharePp, 0) / 100;
+  const groupRows = groups.map((group) => ({
+    name: group.name,
+    accounts: accounts.filter((account) => group.banks.includes(account.bankName)),
+    rows: forecastYearAggregates(accounts.filter((account) => group.banks.includes(account.bankName)), settings, start),
+  }));
+  return forecastYearAggregates(accounts, settings, start).map((row, index) => {
+    const yearEnd = dayjs(`${row.year}-12-31`).startOf("day");
+    return {
     datum: `31.12.${row.year}`,
     bankName: "Prognose",
-    menge: row.nominal,
+    menge: row.nominal + reinvestedNominalAt(accounts, start, yearEnd, share, false),
+    groupAmounts: Object.fromEntries(groupRows.map((group) => [group.name,
+      group.rows[index].nominal + reinvestedNominalAt(group.accounts, start, yearEnd, share, false),
+    ])),
     prozent: row.ratePp,
     wachstum: null,
     ereignis: `Prognose ${row.year} · Zinsen ${row.interest.toLocaleString(
@@ -224,7 +256,8 @@ function buildForecastHistoryRows(
     )} €`,
     aenderung: "none",
     prognose: true,
-  }));
+    };
+  });
 }
 
 export function AppLayout({
@@ -1370,7 +1403,7 @@ export function AppLayout({
   ];
 
   const historyPreviewRows = useMemo(() => {
-    const forecastRows = buildForecastHistoryRows(data, forecast);
+    const forecastRows = buildForecastHistoryRows(data, forecast, historyGroups);
     const rows = buildHistoryRows(data);
     if (rows.length === 0) return forecastRows;
     const today = dayjs();
@@ -1400,17 +1433,36 @@ export function AppLayout({
       };
       const result = [...rows];
       result.splice(insertIdx + 1, 0, todayRow);
-      return [...result, ...forecastRows];
+      return [...result, ...forecastRows].sort((first, second) =>
+        parseDatum(first.datum).valueOf() - parseDatum(second.datum).valueOf(),
+      );
     }
-    return [...rows, ...forecastRows];
-  }, [data, forecast]);
+    return [...rows, ...forecastRows].sort((first, second) =>
+      parseDatum(first.datum).valueOf() - parseDatum(second.datum).valueOf(),
+    );
+  }, [data, forecast, historyGroups]);
   // Memoize the history chart config so merely toggling the
   // Diagramm/Tabelle switch does NOT recompute running totals nor
   // create new lineData/options/plugin objects (which would force
   // Chart.js to fully destroy and recreate the chart = visible lag).
   // Only data-affecting dependencies invalidate the memo.
   const historyChart = useMemo(() => {
-    const dates = [...new Set(historyPreviewRows.map((r) => r.datum))];
+    const today = dayjs().startOf("day");
+    const reinvestShare = parseForecastState(forecast).groups.reduce((sum, group) => sum + group.sharePp, 0) / 100;
+    const forecastEnd = today.endOf("year").add(9, "year");
+    const forecastDates = Array.from({ length: 10 }, (_, index) =>
+      today.endOf("year").add(index, "year").format("DD.MM.YYYY"),
+    );
+    const dates = [...new Set([
+      ...historyPreviewRows
+        .filter((row) => !row.prognose && !dayjs(row.datum, "DD.MM.YYYY").isAfter(forecastEnd, "day"))
+        .map((row) => row.datum),
+      today.format("DD.MM.YYYY"),
+      ...forecastDates,
+    ])].sort((first, second) =>
+      dayjs(first, "DD.MM.YYYY").valueOf() - dayjs(second, "DD.MM.YYYY").valueOf(),
+    );
+    const forecastStartIndex = dates.indexOf(today.format("DD.MM.YYYY"));
               const runningTotals: Record<string, number[]> = {};
 
               // Always compute "Gesamt"
@@ -1422,7 +1474,10 @@ export function AppLayout({
                   if (r.ereignis === "Eröffnung") totalSum += r.menge;
                   if (r.ereignis === "Ablauf") totalSum -= r.menge;
                 });
-                runningTotals["Gesamt"].push(totalSum);
+                const forecastRow = rowsForDate.find((row) => row.prognose);
+                const date = dayjs(d, "DD.MM.YYYY");
+                const reinvested = date.isBefore(today, "day") ? 0 : reinvestedNominalAt(data, today, date, reinvestShare, true);
+                runningTotals["Gesamt"].push(forecastRow ? forecastRow.menge : totalSum + reinvested);
               });
 
               // Per group
@@ -1438,7 +1493,10 @@ export function AppLayout({
                         if (r.ereignis === "Ablauf") sum -= r.menge;
                       }
                     });
-                    runningTotals[g.name].push(sum);
+                    const forecastRow = rowsForDate.find((row) => row.prognose);
+                    const date = dayjs(d, "DD.MM.YYYY");
+                    const reinvested = date.isBefore(today, "day") ? 0 : reinvestedNominalAt(data.filter((account) => g.banks.includes(account.bankName)), today, date, reinvestShare, true);
+                    runningTotals[g.name].push(forecastRow ? (forecastRow.groupAmounts?.[g.name] ?? 0) : sum + reinvested);
                   });
                 });
               }
@@ -1488,6 +1546,10 @@ export function AppLayout({
                     fill: hasGroups ? ("stack" as const) : true,
                     tension: 0.3,
                     borderWidth: 2,
+                    segment: {
+                      borderColor: (ctx: any) => colors[i % colors.length] + (ctx.p0DataIndex >= forecastStartIndex ? "88" : "ff"),
+                      backgroundColor: (ctx: any) => colors[i % colors.length] + (ctx.p0DataIndex >= forecastStartIndex ? "18" : "44"),
+                    },
                   })),
                   // The Gesamt summary line: a stacked, line-only dataset whose
                   // value is the residual up to the true total. Because it is
@@ -1516,6 +1578,9 @@ export function AppLayout({
                         tension: 0.3,
                         borderWidth: 3,
                         borderDash: [] as number[],
+                        segment: {
+                          borderColor: (ctx: any) => ctx.p0DataIndex >= forecastStartIndex ? "#00000088" : "#000000",
+                        },
                       }]
                     : []),
                 ],
@@ -1609,7 +1674,7 @@ export function AppLayout({
                 },
               };
     return { lineData, lineOptions, plugins: [todayLinePlugin] };
-  }, [historyPreviewRows, historyGroups]);
+  }, [historyPreviewRows, historyGroups, data, forecast]);
 
   // Memoized columns for the Historie table so toggling the
   // Diagramm/Tabelle switch does not rebuild the columns array (which
@@ -1638,7 +1703,12 @@ export function AppLayout({
                 align: "right" as const,
                 width: 160,
                 render: (_: unknown, record: HistoryRow) =>
-                  record.ereignis === "Summe"
+                  record.prognose
+                    ? (record.groupAmounts?.[group.name] ?? 0).toLocaleString("de-DE", {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })
+                    : record.ereignis === "Summe"
                     ? record.menge.toLocaleString("de-DE", {
                         minimumFractionDigits: 2,
                         maximumFractionDigits: 2,
@@ -1658,7 +1728,7 @@ export function AppLayout({
                   align: "right" as const,
                   width: 160,
                   render: (_: unknown, record: HistoryRow) =>
-                    record.ereignis === "Eröffnung" || record.ereignis === "Summe"
+                    record.prognose || record.ereignis === "Eröffnung" || record.ereignis === "Summe"
                       ? record.menge.toLocaleString("de-DE", {
                           minimumFractionDigits: 2,
                           maximumFractionDigits: 2,

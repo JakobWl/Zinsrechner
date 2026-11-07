@@ -3,6 +3,8 @@ import { App as AntApp, ConfigProvider, theme } from "antd";
 import deDE from "antd/locale/de_DE";
 import dayjs from "dayjs";
 import "dayjs/locale/de";
+import { isTauri } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { AppLayout } from "./AppLayout";
 
 dayjs.locale("de");
@@ -40,6 +42,10 @@ function App() {
     document.documentElement.dataset.theme = darkMode ? "dark" : "light";
     document.documentElement.style.colorScheme = darkMode ? "dark" : "light";
   }, [darkMode]);
+
+  useEffect(() => {
+    if (isTauri()) void getCurrentWindow().show().catch(console.error);
+  }, []);
 
   return (
     <ConfigProvider
