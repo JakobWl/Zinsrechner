@@ -489,14 +489,16 @@ test(
       await quarter[0].sendKeys("01.01.2025", Key.TAB);
       await quarter[1].sendKeys("31.03.2025", Key.TAB);
       await (
-        await find(
-          d,
-          '[aria-label="Anlagenübersicht für den gewählten Quartalszeitraum drucken"]',
+        await d.wait(
+          until.elementLocated(By.css('[aria-label="Anlagenübersicht für den gewählten Quartalszeitraum drucken"]')),
+          15000,
+          "Print button was not found",
         )
       ).click();
       await d.wait(
         async () => (await d.getAllWindowHandles()).length === 2,
         15000,
+        "Print preview window did not open",
       );
       const windows = await d.getAllWindowHandles();
       await d.switchTo().window(windows.find((w) => w !== original));
