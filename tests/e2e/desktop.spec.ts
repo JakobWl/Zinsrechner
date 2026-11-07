@@ -204,10 +204,11 @@ test("light, dark and system themes retain selection after reload", async ({ pag
 });
 test("printing sends a complete report and the layout responds to resize", async ({ page }) => {
   await launch(page);
-  await page.locator(".quarter-range input").nth(0).fill("01.01.2025");
-  await page.locator(".quarter-range input").nth(0).press("Tab");
-  await page.locator(".quarter-range input").nth(1).fill("31.03.2025");
-  await page.locator(".quarter-range input").nth(1).press("Tab");
+  await page.locator(".quarter-range input").nth(0).pressSequentially("01.01.2025");
+  await page.locator(".quarter-range input").nth(0).press("Enter");
+  await page.locator(".quarter-range input").nth(1).pressSequentially("31.03.2025");
+  await page.locator(".quarter-range input").nth(1).press("Enter");
+  await expect(page.getByRole("button", { name: "Anlagenübersicht für den gewählten Quartalszeitraum drucken" })).toBeEnabled();
   await page.getByRole("button", { name: "Anlagenübersicht für den gewählten Quartalszeitraum drucken" }).click();
   await expect.poll(() => page.evaluate(() => (window as any).__printHtml || "")).toContain("Migration Bank");
   await page.setViewportSize({ width: 1050, height: 750 });

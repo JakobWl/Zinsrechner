@@ -486,14 +486,21 @@ test(
         20000,
       );
       const quarter = await d.findElements(By.css(".quarter-range input"));
-      await quarter[0].sendKeys("01.01.2025", Key.TAB);
-      await quarter[1].sendKeys("31.03.2025", Key.TAB);
+      await quarter[0].click();
+      await quarter[0].sendKeys("01.01.2025", Key.ENTER);
+      await quarter[1].click();
+      await quarter[1].sendKeys("31.03.2025", Key.ENTER);
       const printButton = await d.wait(
         until.elementLocated(By.css('[aria-label="Anlagenübersicht für den gewählten Quartalszeitraum drucken"]')),
         15000,
         "Print button was not found",
       );
-      await d.wait(until.elementIsEnabled(printButton), 10000, "Print button was not enabled after entering the quarter");
+      try {
+        await d.wait(until.elementIsEnabled(printButton), 10000);
+      } catch (error) {
+        const values = await Promise.all(quarter.map((input) => input.getAttribute("value")));
+        throw new Error(`Print button was not enabled; quarter inputs: ${JSON.stringify(values)}`, { cause: error });
+      }
       await d.executeScript('window.addEventListener("desktop-error", event => { window.__printTestError = String(event.detail); });');
       await printButton.click();
       await d.wait(
