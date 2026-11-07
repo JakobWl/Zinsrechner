@@ -236,7 +236,7 @@ test("forecast tables keep their rows visible and scroll into view at different 
   await launch(page);
   await page.getByRole("button", { name: "Prognose öffnen" }).click();
   const cards = page.locator(".forecast-card");
-  await expect(cards).toHaveCount(3);
+  await expect(cards).toHaveCount(4);
   for (const viewport of [{ width: 1600, height: 1000 }, { width: 1280, height: 720 }, { width: 1024, height: 600 }]) {
     await page.setViewportSize(viewport);
     for (const horizon of [3, 10]) {
