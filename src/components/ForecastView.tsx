@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Button,
@@ -102,6 +102,33 @@ function normalizeForecastState(state: ForecastState): ForecastState {
     horizonYears: clampHorizon(state.horizonYears),
     groups: groups.length > 0 ? groups : defaultForecastState().groups,
   };
+}
+
+/**
+ * Gleicht die Prognose-Gruppen mit den Banknamen der Konten ab:
+ * gleiche Namen, gleiche Reihenfolge. Bereits gesetzte
+ * Anteile bleiben erhalten, neue Gruppen teilen sich den Rest gleichmäßig.
+ */
+export function syncGroupsWithNames(
+  state: ForecastState,
+  names: string[],
+): ForecastState {
+  const unique = [...new Set(names.map((name) => String(name ?? "").trim()).filter(Boolean))];
+  if (unique.length === 0) return state;
+  const existing = new Map(state.groups.map((group) => [group.label, group]));
+  const known = unique.filter((name) => existing.has(name));
+  const fresh = unique.filter((name) => !existing.has(name));
+  const used = known.reduce((sum, name) => sum + existing.get(name)!.sharePp, 0);
+  const rest = fresh.length > 0 ? Math.max(0, round2(100 - used)) / fresh.length : 0;
+  const groups = unique.map((name) => ({
+    id: `bank:${name}`,
+    label: name,
+    sharePp: existing.get(name)?.sharePp ?? round2(rest),
+  }));
+  const unchanged =
+    groups.length === state.groups.length &&
+    groups.every((g, i) => g.id === state.groups[i].id && g.label === state.groups[i].label && g.sharePp === state.groups[i].sharePp);
+  return unchanged ? state : { ...state, groups };
 }
 
 /**
@@ -398,6 +425,14 @@ export default function ForecastView({
     changeHandler.current?.(normalized);
   }, []);
 
+  const groupNames = accounts.map((account) => account.bankName).filter((name) => name?.trim());
+  const namedGroups = groupNames.length > 0;
+  const namesKey = JSON.stringify(groupNames);
+  useEffect(() => {
+    const synced = syncGroupsWithNames(settings, JSON.parse(namesKey));
+    if (synced !== settings) applySettings(synced);
+  }, [namesKey, settings, applySettings]);
+
   const accountsList = useMemo(() => accounts ?? [], [accounts]);
 
   // Alles Folgende ist reine Ableitung aus den Konten.
@@ -611,7 +646,7 @@ export default function ForecastView({
                 type="text"
                 danger
                 icon={<DeleteOutlined />}
-                disabled={settings.groups.length <= 1}
+                disabled={namedGroups || settings.groups.length <= 1}
                 onClick={() => removeGroup(record.id)}
               />
             </Tooltip>
@@ -836,7 +871,7 @@ export default function ForecastView({
         extra={
           <Space size="small">
             <Text type="secondary">Anteil am fälligen Nominal</Text>
-            <Button size="small" icon={<PlusOutlined />} onClick={addGroup}>
+            <Button size="small" icon={<PlusOutlined />} onClick={addGroup} disabled={namedGroups}>
               Variante
             </Button>
           </Space>
