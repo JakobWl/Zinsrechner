@@ -524,7 +524,9 @@ export default function ForecastView({
       key: "label",
       width: 200,
       fixed: "left" as const,
-      render: (value: string) => <Text strong>{value}</Text>,
+      render: (value: string, record: { key: string }) => (
+        <Text strong style={record.key === "interest" ? { fontSize: 15 } : undefined}>{value}</Text>
+      ),
     },
     ...aggregates.map((row) => ({
       title: String(row.year),
@@ -540,7 +542,9 @@ export default function ForecastView({
       title: "Summe",
       key: "total",
       align: "right" as const,
-      render: (_: unknown, record: { total: string }) => <Text strong>{record.total}</Text>,
+      render: (_: unknown, record: { key: string; total: string }) => (
+        <Text strong style={record.key === "interest" ? { fontSize: 16 } : undefined}>{record.total}</Text>
+      ),
     },
   ];
 
