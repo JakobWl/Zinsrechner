@@ -1,6 +1,28 @@
 import { test, expect, type Page } from "@playwright/test";
 
 const account = { bankName: "Migration Bank", kontoNumber: "E2E-001", startDatum: "2025-01-01", endDatum: "2025-12-31", zinssatz: 4, nominal: 10000, dayCountConvention: "actual" };
+
+test("effective rate falls back, persists edits and resets to the nominal rate", async ({ page }) => {
+  await launch(page);
+  const input = page.getByRole("spinbutton", { name: "Effektivzinssatz für Migration Bank E2E-001" });
+  await expect(input).toHaveValue("4,00");
+  const savedRate = () => page.evaluate(() => {
+    const files = JSON.parse(localStorage.getItem("__files") || "{}");
+    return JSON.parse(files["konten.json"] || "[]")[0]?.effektivzinssatz;
+  });
+  await expect.poll(savedRate).toBeNull();
+  await input.fill("2,75");
+  await input.blur();
+  await expect.poll(savedRate).toBe(2.75);
+  await page.reload();
+  await expect(input).toHaveValue("2,75");
+  await input.fill("");
+  await input.blur();
+  await expect.poll(savedRate).toBeNull();
+  await expect(input).toHaveValue("4,00");
+  await page.reload();
+  await expect(input).toHaveValue("4,00");
+});
 async function launch(page: Page, options: { empty?: boolean; corrupt?: boolean; update?: string; future?: boolean } = {}) {
   await page.addInitScript(({ account, options }) => {
     const initial = { "konten.json": JSON.stringify(options.empty ? [] : [{ ...account, endDatum: options.future ? "2099-12-31" : account.endDatum }]), "prognose.json": "null", "history-groups.json": JSON.stringify([{ name: "Testgruppe", banks: ["Migration Bank"] }]) };

@@ -70,6 +70,7 @@ import {
   calculateQuarterlyInterest,
   DayCountConvention,
 } from "./utils/interestCalculation";
+import InvestmentsView from "./components/InvestmentsView";
 import ForecastView, {
   forecastYearAggregates,
   parseForecastState,
@@ -101,6 +102,7 @@ interface KontoData {
   startDatum: Dayjs;
   endDatum: Dayjs;
   zinssatz: number;
+  effektivzinssatz?: number | null;
   nominal: number;
   dayCountConvention?: DayCountConvention;
   zinsen?: number;
@@ -278,7 +280,7 @@ export function AppLayout({
   const [quartalsBeginn, setQuartalsBeginn] = useState<Dayjs | null>(null);
   const [quartalsEnde, setQuartalsEnde] = useState<Dayjs | null>(null);
   const [tableScrollY, setTableScrollY] = useState(300);
-  const [view, setView] = useState<"main" | "prognose">("main");
+  const [view, setView] = useState<"main" | "prognose" | "veranlagungen">("main");
   const [forecast, setForecast] = useState<ForecastState | null>(null);
   const [forecastLoaded, setForecastLoaded] = useState(false);
   const hasLoadedData = useRef(false);
@@ -378,6 +380,7 @@ export function AppLayout({
           setData(
             parsedData.map((entry) => ({
               ...entry,
+              effektivzinssatz: entry.effektivzinssatz ?? null,
               startDatum: dayjs(entry.startDatum),
               endDatum: dayjs(entry.endDatum),
             })),
@@ -541,6 +544,7 @@ export function AppLayout({
       startDatum,
       endDatum,
       zinssatz: Number(zinssatz),
+      effektivzinssatz: null,
       nominal: Number(nominal),
       dayCountConvention: dayCountConvention || "actual",
       kommulierteZinsen: 0,
@@ -657,23 +661,24 @@ export function AppLayout({
           <Table.Summary.Cell index={3} />
           <Table.Summary.Cell index={4} />
           <Table.Summary.Cell index={5} />
-          <Table.Summary.Cell index={6}>{f2(totals.nominal)}</Table.Summary.Cell>
-          <Table.Summary.Cell align="end" index={7}>
+          <Table.Summary.Cell index={6} />
+          <Table.Summary.Cell align="end" index={7}>{f2(totals.nominal)}</Table.Summary.Cell>
+          <Table.Summary.Cell align="end" index={8}>
             {f2(totals.interest)}
           </Table.Summary.Cell>
-          <Table.Summary.Cell align="end" index={8}>
+          <Table.Summary.Cell align="end" index={9}>
             {quartalsEnde ? f2(summaryAggregates.accumulated) : "0,00"}
           </Table.Summary.Cell>
-          <Table.Summary.Cell align="end" index={9}>
+          <Table.Summary.Cell align="end" index={10}>
             {quartalsBeginn && quartalsEnde ? f2(summaryAggregates.quarterly) : "0,00"}
           </Table.Summary.Cell>
-          <Table.Summary.Cell align="end" index={10}>
+          <Table.Summary.Cell align="end" index={11}>
             {f2(summaryAggregates.paid)}
           </Table.Summary.Cell>
-          <Table.Summary.Cell align="end" index={11}>
+          <Table.Summary.Cell align="end" index={12}>
             {f2(summaryAggregates.reserve)}
           </Table.Summary.Cell>
-          <Table.Summary.Cell index={12} />
+          <Table.Summary.Cell index={13} />
         </Table.Summary.Row>
       </Table.Summary>
     );
@@ -1779,6 +1784,9 @@ export function AppLayout({
           </div>
         </Space>
         <div className="app-header-actions">
+          <Tooltip title="Stammdaten der laufenden Veranlagungen">
+            <Button type={view === "veranlagungen" ? "primary" : "text"} aria-label="Veranlagungen öffnen" aria-pressed={view === "veranlagungen"} icon={<TableOutlined />} onClick={() => setView("veranlagungen")}>Veranlagungen</Button>
+          </Tooltip>
           <Tooltip title="Mehrjährige Prognose mit Planwerten je Jahr">
             <Button
               type={view === "prognose" ? "primary" : "text"}
@@ -2009,6 +2017,7 @@ export function AppLayout({
           tabIndex={-1}
         >
           {loadError && <Alert type="error" showIcon message={loadError} description="Ihre gespeicherten Dateien bleiben erhalten. Bitte beheben Sie den Ladefehler, bevor Sie weitere Daten erfassen." />}
+          {view === "veranlagungen" && <InvestmentsView accounts={data} groups={historyGroups} onBack={() => setView("main")} />}
           {view === "prognose" && forecastLoaded && (
             <ForecastView
               accounts={data}
@@ -2161,6 +2170,27 @@ export function AppLayout({
                       maximumFractionDigits: 2,
                     }) + " %"
                   }
+                />
+                <Table.Column
+                  title="Effektivzinssatz"
+                  width={150}
+                  key="effektivzinssatz"
+                  align="right"
+                  render={(_, record: KontoData, index: number) => (
+                    <InputNumber
+                      value={record.effektivzinssatz ?? record.zinssatz}
+                      min={0}
+                      step={0.01}
+                      decimalSeparator=","
+                      suffix="%"
+                      aria-label={`Effektivzinssatz für ${record.bankName} ${record.kontoNumber}`}
+                      onChange={(value) => {
+                        setData((prevData) => prevData.map((entry, i) =>
+                          i === index ? { ...entry, effektivzinssatz: value } : entry
+                        ));
+                      }}
+                    />
+                  )}
                 />
                 <Table.Column
                   title="Zinsmethode"
