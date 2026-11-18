@@ -1,8 +1,14 @@
-import { ArrowLeftOutlined, ZoomInOutlined, ZoomOutOutlined } from "@ant-design/icons";
-import { Button, Card, Empty, Slider, Space, Table, Typography } from "antd";
+import {
+  ArrowLeftOutlined,
+  FullscreenExitOutlined,
+  FullscreenOutlined,
+  ZoomInOutlined,
+  ZoomOutOutlined,
+} from "@ant-design/icons";
+import { Button, Empty, Slider, Space, Table, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import dayjs, { Dayjs } from "dayjs";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface Investment {
   bankName: string;
@@ -60,25 +66,55 @@ export default function InvestmentsView({ accounts, groups, onBack }: {
   const euro = new Intl.NumberFormat("de-AT", { style: "currency", currency: "EUR" });
   const rate = new Intl.NumberFormat("de-AT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const [scale, setScale] = useState(100);
+  const [fullscreen, setFullscreen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 
-  const columns: ColumnsType<InvestmentRow> = [
-    { title: "Bank", dataIndex: "bank", key: "bank", width: 220,
+  useEffect(() => {
+    if (!fullscreen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setFullscreen(false);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [fullscreen]);
+
+  const columnsFor = (section: { name: string; accounts: Investment[] }): ColumnsType<InvestmentRow> => [
+    { title: "Bank", dataIndex: "bank", key: "bank", width: "24%",
+      onHeaderCell: () => ({ className: "investments-bank-th" }),
       render: (_, row) => row.kind === "total" ? <strong>Summe</strong> : row.account.bankName },
-    { title: "EUR", key: "nominal", align: "right", width: 170,
-      render: (_, row) => row.kind === "total" ? <strong>{euro.format(row.total)}</strong> : euro.format(row.account.nominal) },
-    { title: "Laufzeit", key: "dates", align: "center", width: 270,
-      render: (_, row) => row.kind === "account" ? (
-        <span className="investments-dates">
-          {row.account.startDatum.format("DD.MM.YYYY")} – {row.account.endDatum.format("DD.MM.YYYY")}
-          <span className="investments-duration">{investmentDuration(row.account.startDatum, row.account.endDatum)}</span>
+    {
+      key: `group-${section.name}`,
+      onHeaderCell: () => ({ className: "investments-group-th" }),
+      title: (
+        <span className="investments-group-band">
+          <span className="investments-group-title">{section.name}</span>
+          <span className="investments-group-count">
+            {section.accounts.length} {section.accounts.length === 1 ? "Anlage" : "Anlagen"}
+          </span>
         </span>
-      ) : null },
-    { title: "Zinssatz", key: "rate", align: "right", width: 130,
-      render: (_, row) => row.kind === "account" ? `${rate.format(row.account.zinssatz)} %` : null },
-    { title: "Effektivzinssatz", key: "effective", align: "right", width: 160,
-      render: (_, row) => row.kind === "account" ? `${rate.format(row.account.effektivzinssatz ?? row.account.zinssatz)} %` : null },
+      ),
+      children: [
+        { title: "EUR", key: "nominal", align: "right", width: "16%",
+          render: (_, row) => row.kind === "total" ? <strong>{euro.format(row.total)}</strong> : euro.format(row.account.nominal) },
+        { title: "Laufzeit", key: "dates", align: "center", width: "26%",
+          render: (_, row) => row.kind === "account" ? (
+            <span className="investments-dates">
+              {row.account.startDatum.format("DD.MM.YYYY")} – {row.account.endDatum.format("DD.MM.YYYY")}
+              <span className="investments-duration">{investmentDuration(row.account.startDatum, row.account.endDatum)}</span>
+            </span>
+          ) : null },
+        { title: "Zinssatz", key: "rate", align: "right", width: "17%",
+          render: (_, row) => row.kind === "account" ? `${rate.format(row.account.zinssatz)} %` : null },
+        { title: "Effektivzinssatz", key: "effective", align: "right", width: "17%",
+          render: (_, row) => row.kind === "account" ? `${rate.format(row.account.effektivzinssatz ?? row.account.zinssatz)} %` : null },
+      ],
+    },
   ];
 
   const fitToWidth = () => {
@@ -94,6 +130,37 @@ export default function InvestmentsView({ accounts, groups, onBack }: {
     setScale(Math.min(200, Math.max(50, next)));
   };
 
+  const scaleControl = (
+    <Space className="investments-scale-control" size={8}>
+      <Typography.Text type="secondary">Skalierung</Typography.Text>
+      <ZoomOutOutlined />
+      <Slider
+        min={50}
+        max={200}
+        step={10}
+        value={scale}
+        onChange={setScale}
+        ariaLabelForHandle="Skalierung der Tabelle"
+        tooltip={{ formatter: (value) => `${value} %` }}
+        style={{ width: 150, margin: 0 }}
+      />
+      <ZoomInOutlined />
+      <Typography.Text style={{ width: 48, textAlign: "right" }}>{scale} %</Typography.Text>
+      <Button size="small" onClick={fitToWidth}>An Breite anpassen</Button>
+      <Button size="small" type="link" onClick={() => setScale(100)} disabled={scale === 100}>
+        Zurücksetzen
+      </Button>
+      <Button
+        size="small"
+        icon={fullscreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
+        onClick={() => setFullscreen((value) => !value)}
+        aria-pressed={fullscreen}
+        aria-label={fullscreen ? "Vollbild beenden" : "Vollbild"}
+        title={fullscreen ? "Vollbild beenden" : "Vollbild"}
+      />
+    </Space>
+  );
+
   return (
     <div className="investments-view">
       <div className="investments-toolbar">
@@ -102,60 +169,34 @@ export default function InvestmentsView({ accounts, groups, onBack }: {
           <Typography.Title level={3} style={{ margin: 0 }}>Laufende Veranlagungen</Typography.Title>
           <Typography.Text type="secondary">Stand {today.format("DD.MM.YYYY")}</Typography.Text>
         </div>
-        <Space className="investments-scale-control" size={8}>
-          <Typography.Text type="secondary">Skalierung</Typography.Text>
-          <ZoomOutOutlined />
-          <Slider
-            min={50}
-            max={200}
-            step={10}
-            value={scale}
-            onChange={setScale}
-            ariaLabelForHandle="Skalierung der Tabelle"
-            tooltip={{ formatter: (value) => `${value} %` }}
-            style={{ width: 150, margin: 0 }}
-          />
-          <ZoomInOutlined />
-          <Typography.Text style={{ width: 48, textAlign: "right" }}>{scale} %</Typography.Text>
-          <Button size="small" onClick={fitToWidth}>An Breite anpassen</Button>
-          <Button size="small" type="link" onClick={() => setScale(100)} disabled={scale === 100}>
-            Zurücksetzen
-          </Button>
-        </Space>
+        {fullscreen ? null : scaleControl}
       </div>
       <div
-        className="investments-scroll"
+        className={fullscreen ? "investments-scroll investments-scroll-fullscreen" : "investments-scroll"}
         role="region"
         ref={scrollRef}
         aria-label="Laufende Veranlagungen nach Gruppen"
       >
+        {fullscreen ? <div className="investments-fullscreen-bar">{scaleControl}</div> : null}
         {sections.length === 0 ? (
           <Empty description="Keine laufenden Veranlagungen vorhanden" />
         ) : (
           <div className="investments-scale" ref={contentRef} style={{ zoom: scale / 100 }}>
             {sections.map((section) => (
-              <Card
-                className="investments-group-card"
-                key={section.name}
-                title={<span className="investments-group-title">{section.name}</span>}
-                extra={<span className="investments-group-count">
-                  {section.accounts.length} {section.accounts.length === 1 ? "Anlage" : "Anlagen"}
-                </span>}
-              >
+              <section className="investments-group" key={section.name}>
                 <Table<InvestmentRow>
                   className="table investments-table"
                   rowHoverable={false}
                   dataSource={investmentRows([section])}
-                  columns={columns}
+                  columns={columnsFor(section)}
                   rowKey="key"
                   pagination={false}
                   size="middle"
                   bordered
-                  scroll={{ x: "max-content" }}
                   locale={{ emptyText: "Keine laufenden Veranlagungen vorhanden" }}
                   rowClassName={(row) => row.kind === "total" ? "investments-total" : ""}
                 />
-              </Card>
+              </section>
             ))}
           </div>
         )}

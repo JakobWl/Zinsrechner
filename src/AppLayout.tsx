@@ -1551,10 +1551,6 @@ export function AppLayout({
                     fill: hasGroups ? ("stack" as const) : true,
                     tension: 0.3,
                     borderWidth: 2,
-                    segment: {
-                      borderColor: (ctx: any) => colors[i % colors.length] + (ctx.p0DataIndex >= forecastStartIndex ? "88" : "ff"),
-                      backgroundColor: (ctx: any) => colors[i % colors.length] + (ctx.p0DataIndex >= forecastStartIndex ? "18" : "44"),
-                    },
                   })),
                   // The Gesamt summary line: a stacked, line-only dataset whose
                   // value is the residual up to the true total. Because it is
@@ -1696,6 +1692,7 @@ export function AppLayout({
         title: "Bankname",
         dataIndex: "bankName",
         key: "bankName",
+        width: 240,
       },
       {
         title: "Veranlagung (€)",
