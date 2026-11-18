@@ -805,11 +805,95 @@ html[data-theme="dark"] .kbd-hint {
   font-weight: bold !important;
 }
 
-.investments-table .investments-total > td {
-  font-weight: 600;
+.investments-view {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  height: 100%;
+}
+
+.investments-toolbar {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 24px;
+}
+
+.investments-scale-control {
+  flex-wrap: wrap;
+  margin-inline-start: auto;
+}
+
+.investments-scroll {
+  flex: 1 1 0;
+  min-height: 0;
+  padding: 16px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.investments-scale {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  width: max-content;
+  min-width: 100%;
+}
+
+.investments-group-card {
+  flex: 0 0 auto;
+}
+
+.investments-group-card > .ant-card-head {
+  min-height: 0;
+  background: #4f719a;
+  border-bottom: 0;
+}
+
+.investments-group-card > .ant-card-head .ant-card-head-title {
+  color: #fff;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.investments-group-card > .ant-card-head .ant-card-extra {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.investments-group-card > .ant-card-body {
+  padding: 0;
+}
+
+.investments-group-card .ant-table-wrapper {
+  width: 100%;
 }
 
 .investments-table .ant-table-thead > tr > th {
   background: #6487ae !important;
   color: #111;
+  white-space: nowrap;
+}
+
+.investments-table .ant-table-tbody > tr > td {
+  white-space: nowrap;
+}
+
+.investments-table .investments-total > td {
+  font-weight: 600;
+}
+
+.investments-table .investments-duration {
+  margin-inline-start: 8px;
+  font-size: 0.85em;
+  color: var(--ant-color-text-tertiary, rgba(0, 0, 0, 0.45));
+}
+
+@media (max-width: 720px) {
+  .investments-scroll {
+    padding: 12px;
+  }
 }
