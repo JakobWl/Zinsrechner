@@ -164,6 +164,9 @@ test("adding, validating and deleting an account survives reload", async ({ page
   await launch(page, { empty: true });
   await page.getByRole("button", { name: "Konto hinzufügen" }).click();
   await expect(page.getByText("Bitte geben Sie den Banknamen ein.")).toBeVisible();
+  // The button just clicked sits where the date-range calendar opens. A stationary
+  // pointer over a calendar day previews that day into the End input, so park it first.
+  await page.mouse.move(0, 0);
   await page.getByRole("textbox", { name: "Bankname", exact: true }).fill("Neue Bank");
   await page.getByRole("textbox", { name: "Kontonummer", exact: true }).fill("NEW-002");
   const form = page.getByRole("complementary");
