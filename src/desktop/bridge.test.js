@@ -19,9 +19,24 @@ beforeEach(async () => {
     if (command === "distribution_info")
       return { store: false, version: "1.2.4", updaterConfigured: true };
     if (command === "update_metadata") return { tag_name: "v1.2.5" };
+    if (command === "backup_before_update") return "backup.bak";
     throw new Error("Unexpected command: " + command);
   });
   bridge = (await import("./bridge")).desktopBridge;
+});
+
+test("a failed backup aborts the installation", async () => {
+  const update = { version: "1.2.5", download: vi.fn(), install: vi.fn() };
+  native.check.mockResolvedValue(update);
+  await bridge.invoke("check-for-updates");
+  const original = native.invoke.getMockImplementation();
+  native.invoke.mockImplementation(async (command, args) => {
+    if (command === "backup_before_update") throw new Error("disk full");
+    return original(command, args);
+  });
+  expect(await bridge.invoke("install-update")).toEqual({ ok: false });
+  expect(update.install).not.toHaveBeenCalled();
+  expect(native.relaunch).not.toHaveBeenCalled();
 });
 
 test("standalone builds without signing configuration hide updates and cannot install", async () => {
@@ -83,6 +98,36 @@ test("a rejected download cannot be installed or trigger restart", async () => {
   expect(await bridge.invoke("install-update")).toEqual({ ok: false });
   expect(update.install).not.toHaveBeenCalled();
   expect(native.relaunch).not.toHaveBeenCalled();
+});
+
+test("rapid saves are written in order and coalesced to the newest content", async () => {
+  const writes = [];
+  let release;
+  native.invoke.mockImplementation(async (command, args) => {
+    if (command !== "write_document") throw new Error("Unexpected command: " + command);
+    writes.push(args);
+    if (writes.length === 1) await new Promise((resolve) => (release = resolve));
+  });
+  const first = bridge.invoke("save-data", "[1]");
+  const second = bridge.invoke("save-data", "[2]");
+  const third = bridge.invoke("save-data", "[3]");
+  const other = bridge.invoke("save-forecast", "{}");
+  await Promise.resolve();
+  release();
+  await Promise.all([first, second, third, other]);
+  const konten = writes.filter((w) => w.name === "konten.json").map((w) => w.content);
+  expect(konten).toEqual(["[1]", "[3]"]);
+  expect(writes).toContainEqual({ name: "prognose.json", content: "{}" });
+});
+
+test("a failed save is reported but later saves still go through", async () => {
+  let fail = true;
+  native.invoke.mockImplementation(async (command) => {
+    if (command !== "write_document") throw new Error("Unexpected command: " + command);
+    if (fail) { fail = false; throw new Error("disk full"); }
+  });
+  await expect(bridge.invoke("save-data", "[1]")).rejects.toThrow("disk full");
+  await expect(bridge.invoke("save-data", "[2]")).resolves.toBeUndefined();
 });
 
 test("installation failure is reported without restarting the app", async () => {

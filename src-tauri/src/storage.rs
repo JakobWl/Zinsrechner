@@ -65,7 +65,25 @@ pub fn migrate(root: &Path, candidates: &[PathBuf]) -> Result<Option<PathBuf>, S
     Ok(Some(source.clone()))
 }
 
-pub fn legacy_candidates() -> Vec<PathBuf> {
+/// Write one `.bak` file (JSON bundle of all documents) into `dir`. Never touches the live data.
+pub fn backup(root: &Path, dir: &Path, version: &str) -> Result<PathBuf, String> {
+    fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    let mut documents = serde_json::Map::new();
+    for name in DOCUMENTS {
+        let path = root.join(name);
+        if !path.exists() { continue; }
+        let raw = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        validate(name, &raw)?;
+        documents.insert(name.into(), serde_json::from_str(&raw).map_err(|e| e.to_string())?);
+    }
+    let seconds = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(|e| e.to_string())?.as_secs();
+    let bundle = serde_json::json!({ "app": "Zinsrechner", "version": version, "createdAt": seconds, "documents": documents });
+    let target = dir.join(format!("Zinsrechner-v{version}-{seconds}.bak"));
+    fs::write(&target, serde_json::to_string_pretty(&bundle).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    Ok(target)
+}
+
+pub fn legacy_candidates()-> Vec<PathBuf> {
     let mut result = Vec::new();
     if let Some(config) = dirs::config_dir() {
         for name in ["zinsrechner", "Zinsrechner"] { result.push(config.join(name)); }
@@ -96,6 +114,15 @@ mod tests {
         migrate(&new, &[old.clone()]).unwrap();
         assert_eq!(fs::read_to_string(new.join("konten.json")).unwrap(), "[]");
         assert!(old.join("prognose.json").exists());
+    }
+    #[test] fn backup_bundles_all_documents_into_one_bak_file() {
+        let p = directory(); let data = p.join("data"); let out = p.join("backups");
+        fs::create_dir_all(&data).unwrap();
+        fs::write(data.join("konten.json"), r#"[{"bankName":"A"}]"#).unwrap();
+        let file = backup(&data, &out, "2.0.9").unwrap();
+        assert_eq!(file.extension().unwrap(), "bak");
+        let bundle: Value = serde_json::from_str(&fs::read_to_string(file).unwrap()).unwrap();
+        assert_eq!(bundle["documents"]["konten.json"][0]["bankName"], "A");
     }
     #[test] fn corrupt_legacy_profile_is_not_partially_imported() {
         let p = directory(); let old = p.join("old"); let new = p.join("new");

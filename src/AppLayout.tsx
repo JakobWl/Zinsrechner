@@ -45,6 +45,7 @@ import {
   MoonOutlined,
   PlusOutlined,
   PrinterOutlined,
+  SettingOutlined,
   SunOutlined,
   TableOutlined,
   SyncOutlined,
@@ -290,6 +291,29 @@ export function AppLayout({
   const [historyGroups, setHistoryGroups] = useState<HistoryGroup[]>([]);
   const [groupConfigOpen, setGroupConfigOpen] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [backupSettings, setBackupSettings] = useState<{ dir: string; configured: boolean } | null>(null);
+  const [backupBusy, setBackupBusy] = useState(false);
+  const [backupNotice, setBackupNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  useEffect(() => {
+    if (!settingsOpen) return;
+    setBackupNotice(null);
+    window.desktop?.invoke("get-backup-settings").then(setBackupSettings).catch(() => setBackupSettings(null));
+  }, [settingsOpen]);
+  const handleChooseBackupFolder = async () => {
+    const result = await window.desktop?.invoke("choose-backup-folder");
+    if (result) setBackupSettings(result);
+  };
+  const handleBackupNow = async () => {
+    setBackupBusy(true);
+    try {
+      const file = await window.desktop?.invoke("backup-now");
+      setBackupNotice({ type: "success", text: `Gespeichert: ${String(file).split(/[\\/]/).pop()}` });
+      window.desktop?.invoke("get-backup-settings").then(setBackupSettings).catch(() => {});
+    } catch (error) {
+      setBackupNotice({ type: "error", text: String(error) });
+    } finally { setBackupBusy(false); }
+  };
   const [updateChecking, setUpdateChecking] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [updateInfo, setUpdateInfo] = useState<{
@@ -1864,6 +1888,42 @@ export function AppLayout({
                 />
               </Tooltip>
             </Space.Compact>
+          <Dropdown
+            trigger={["click"]}
+            placement="bottomRight"
+            open={settingsOpen}
+            onOpenChange={setSettingsOpen}
+            popupRender={() => (
+              <div className="settings-panel" role="dialog" aria-label="Einstellungen">
+                <Typography.Text strong>Backup vor Updates</Typography.Text>
+                <Typography.Paragraph type="secondary" className="settings-hint">
+                  Vor jedem Update wird eine .bak-Datei in diesem Ordner gespeichert.
+                </Typography.Paragraph>
+                {window.desktop ? (
+                  <>
+                    <Typography.Text type="secondary">Aktueller Ordner</Typography.Text>
+                    <div className="settings-path" title={backupSettings?.dir}>
+                      {backupSettings?.dir ?? "…"}
+                    </div>
+                    {backupSettings && !backupSettings.configured && (
+                      <Typography.Text type="secondary" className="settings-hint">
+                        Standardordner – noch nicht bestätigt, wird beim ersten Update abgefragt.
+                      </Typography.Text>
+                    )}
+                    <Space className="settings-actions" wrap>
+                      <Button size="small" onClick={handleChooseBackupFolder}>Ordner ändern…</Button>
+                      <Button size="small" type="primary" loading={backupBusy} onClick={handleBackupNow}>Jetzt sichern</Button>
+                    </Space>
+                    {backupNotice && <Alert showIcon type={backupNotice.type} message={backupNotice.text} className="settings-hint" />}
+                  </>
+                ) : (
+                  <Typography.Text type="secondary">Nur in der Desktop-App verfügbar.</Typography.Text>
+                )}
+              </div>
+            )}
+          >
+            <Button size="small" type="text" icon={<SettingOutlined />} aria-label="Einstellungen" />
+          </Dropdown>
         </div>
         <WindowControls />
       </Layout.Header>

@@ -13,13 +13,19 @@ struct DesktopState {
     next_print: AtomicUsize,
     migration_error: Option<String>,
 }
+// Document commands must be async: synchronous Tauri commands run on the main
+// thread, which on Windows also answers the frameless window's per-mouse-move
+// hit-testing. Disk I/O there (plus Defender scanning each file operation)
+// made the cursor stutter over the window whenever a save was in flight.
+// The frontend serializes writes per document (see desktop/bridge.ts), so
+// running them off the main thread cannot reorder saves.
 #[tauri::command]
-fn read_document(name: String, data: State<Storage>, desktop: State<DesktopState>) -> Result<String, String> {
+async fn read_document(name: String, data: State<'_, Storage>, desktop: State<'_, DesktopState>) -> Result<String, String> {
     if let Some(error) = &desktop.migration_error { return Err(format!("Electron data migration failed: {error}. Original files were preserved.")); }
     data.read(&name)
 }
 #[tauri::command]
-fn write_document(name: String, content: String, data: State<Storage>, desktop: State<DesktopState>) -> Result<(), String> {
+async fn write_document(name: String, content: String, data: State<'_, Storage>, desktop: State<'_, DesktopState>) -> Result<(), String> {
     if let Some(error) = &desktop.migration_error { return Err(error.clone()); }
     data.write(&name, &content)
 }
@@ -43,6 +49,71 @@ async fn save_export(app: tauri::AppHandle, name: String, bytes: Vec<u8>) -> Res
         let path = path.into_path().map_err(|e| e.to_string())?;
         fs::write(&path, bytes).map_err(|e| e.to_string())?;
         Ok(Saved { saved: true, path: Some(path.to_string_lossy().into()) })
+    }).await.map_err(|e| e.to_string())?
+}
+fn backup_settings_file(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    Ok(app.path().app_config_dir().map_err(|e| e.to_string())?.join("backup-settings.json"))
+}
+/// Backup folder chosen by the user; asks once (default Documents\ZinsrechnerBackups) and remembers it.
+fn backup_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    let settings = backup_settings_file(app)?;
+    if let Ok(raw) = fs::read_to_string(&settings) {
+        if let Some(dir) = serde_json::from_str::<Value>(&raw).ok().and_then(|v| v["dir"].as_str().map(std::path::PathBuf::from)) { return Ok(dir); }
+    }
+    let default = dirs::document_dir().map(|d| d.join("ZinsrechnerBackups")).ok_or("No Documents folder")?;
+    #[cfg(feature = "e2e")]
+    let chosen = std::env::var_os("ZINSRECHNER_E2E_BACKUP_DIR").map(std::path::PathBuf::from);
+    #[cfg(not(feature = "e2e"))]
+    let chosen: Option<std::path::PathBuf> = None;
+    let chosen = match chosen {
+        Some(dir) => dir,
+        None => {
+            fs::create_dir_all(&default).map_err(|e| e.to_string())?;
+            app.dialog().file().set_title("Backup-Ordner für Updates wählen").set_directory(&default)
+                .blocking_pick_folder().and_then(|p| p.into_path().ok()).unwrap_or(default)
+        }
+    };
+    fs::create_dir_all(settings.parent().unwrap()).map_err(|e| e.to_string())?;
+    fs::write(&settings, serde_json::json!({ "dir": chosen }).to_string()).map_err(|e| e.to_string())?;
+    Ok(chosen)
+}
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BackupSettings { dir: String, configured: bool }
+fn default_backup_dir() -> Result<std::path::PathBuf, String> {
+    dirs::document_dir().map(|d| d.join("ZinsrechnerBackups")).ok_or("No Documents folder".into())
+}
+fn saved_backup_dir(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
+    let raw = fs::read_to_string(backup_settings_file(app).ok()?).ok()?;
+    serde_json::from_str::<Value>(&raw).ok()?["dir"].as_str().map(std::path::PathBuf::from)
+}
+#[tauri::command]
+fn get_backup_settings(app: tauri::AppHandle) -> Result<BackupSettings, String> {
+    Ok(match saved_backup_dir(&app) {
+        Some(dir) => BackupSettings { dir: dir.to_string_lossy().into(), configured: true },
+        None => BackupSettings { dir: default_backup_dir()?.to_string_lossy().into(), configured: false },
+    })
+}
+#[tauri::command]
+async fn choose_backup_dir(app: tauri::AppHandle) -> Result<Option<BackupSettings>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let start = saved_backup_dir(&app).map(Ok).unwrap_or_else(default_backup_dir)?;
+        fs::create_dir_all(&start).map_err(|e| e.to_string())?;
+        let Some(picked) = app.dialog().file().set_title("Backup-Ordner wählen").set_directory(&start).blocking_pick_folder() else { return Ok(None); };
+        let dir = picked.into_path().map_err(|e| e.to_string())?;
+        let settings = backup_settings_file(&app)?;
+        fs::create_dir_all(settings.parent().unwrap()).map_err(|e| e.to_string())?;
+        fs::write(&settings, serde_json::json!({ "dir": dir }).to_string()).map_err(|e| e.to_string())?;
+        Ok(Some(BackupSettings { dir: dir.to_string_lossy().into(), configured: true }))
+    }).await.map_err(|e| e.to_string())?
+}
+#[tauri::command]
+async fn backup_before_update(app: tauri::AppHandle, data: State<'_, Storage>) -> Result<String, String> {
+    let root = data.root.clone();
+    let version = app.package_info().version.to_string();
+    tauri::async_runtime::spawn_blocking(move || {
+        let dir = backup_dir(&app)?;
+        storage::backup(&root, &dir, &version).map(|p| p.to_string_lossy().into())
     }).await.map_err(|e| e.to_string())?
 }
 #[tauri::command]
@@ -117,10 +188,15 @@ pub fn run() {
             if app.config().plugins.0.get("updater").and_then(|v| v.get("pubkey")).and_then(Value::as_str).is_some_and(|key| !key.is_empty()) {
                 app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
             }
-            let root = app.path().app_data_dir()?;
+            // Store (MSIX) installs virtualize %APPDATA% into the package folder, which Windows
+            // deletes on uninstall. Keep data in Documents\Zinsrechner instead and migrate
+            // from the old app-data folder (and Electron locations) on first start.
+            let app_data = app.path().app_data_dir()?;
+            let root = dirs::document_dir().map(|d| d.join("Zinsrechner")).unwrap_or_else(|| app_data.clone());
             #[cfg(feature = "e2e")]
             let root = std::env::var_os("ZINSRECHNER_E2E_DATA_DIR").map(PathBuf::from).unwrap_or(root);
-            let candidates = storage::legacy_candidates();
+            let mut candidates = vec![app_data];
+            candidates.extend(storage::legacy_candidates());
             #[cfg(feature = "e2e")]
             let candidates = std::env::var_os("ZINSRECHNER_E2E_LEGACY_DIR").map(|p| vec![PathBuf::from(p)]).unwrap_or(candidates);
             let migration = storage::migrate(&root, &candidates);
@@ -150,6 +226,6 @@ pub fn run() {
                 }
             }
         })
-        .invoke_handler(tauri::generate_handler![read_document, write_document, save_export, create_print_window, print_content, print_window, distribution_info, update_metadata, open_store, open_external])
+        .invoke_handler(tauri::generate_handler![backup_before_update, get_backup_settings, choose_backup_dir, read_document, write_document, save_export, create_print_window, print_content, print_window, distribution_info, update_metadata, open_store, open_external])
         .run(tauri::generate_context!()).expect("Could not run Zinsrechner");
 }

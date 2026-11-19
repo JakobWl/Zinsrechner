@@ -40,6 +40,32 @@ async function exportHistory(kind: "pdf" | "excel", rows: HistoryRow[], groups: 
   return invoke("save_export", { name: `Veranlagungshistorie.${kind === "pdf" ? "pdf" : "xls"}`, bytes });
 }
 
+// Saves run off the Tauri main thread, so two quick writes of the same
+// document could otherwise finish out of order and leave stale data on disk.
+// Writes are serialized per document and coalesced: while one is in flight,
+// only the newest content is kept and written next.
+const pendingSaves = new Map<string, string>();
+const activeSaves = new Map<string, Promise<void>>();
+export function saveDocument(name: string, content: string): Promise<void> {
+  pendingSaves.set(name, content);
+  const active = activeSaves.get(name);
+  if (active) return active;
+  const run = (async () => {
+    let lastError: unknown;
+    try {
+      while (pendingSaves.has(name)) {
+        const next = pendingSaves.get(name)!;
+        pendingSaves.delete(name);
+        try { await invoke("write_document", { name, content: next }); lastError = undefined; }
+        catch (error) { lastError = error; }
+      }
+    } finally { activeSaves.delete(name); }
+    if (lastError !== undefined) throw lastError;
+  })();
+  activeSaves.set(name, run);
+  return run;
+}
+
 async function updateAvailable() {
   try {
     const dist = await invoke<Distribution>("distribution_info");
@@ -82,20 +108,26 @@ async function downloadUpdate() {
 export const desktopBridge: DesktopBridge = {
   async invoke(channel, ...args) {
     if (channel.startsWith("load-") && documents[channel.slice(5)]) return invoke("read_document", { name: documents[channel.slice(5)] });
-    if (channel.startsWith("save-") && documents[channel.slice(5)]) return invoke("write_document", { name: documents[channel.slice(5)], content: args[0] });
+    if (channel.startsWith("save-") && documents[channel.slice(5)]) return saveDocument(documents[channel.slice(5)], args[0]);
     switch (channel) {
       case "export-history-pdf": return exportHistory("pdf", args[0], args[1] || []);
       case "export-history-excel": return exportHistory("excel", args[0], args[1] || []);
       case "create-print-window": return invoke("create_print_window", { html: args[0].content });
+      case "get-backup-settings": return invoke("get_backup_settings");
+      case "choose-backup-folder": return invoke("choose_backup_dir");
+      case "backup-now": return invoke("backup_before_update");
       case "check-update-available": return updateAvailable();
       case "check-for-updates":
         if (!downloading) downloading = downloadUpdate().finally(() => { downloading = null; });
         return downloading;
       case "install-update": {
         const dist = await invoke<Distribution>("distribution_info");
+        if (!dist.store && !pending) return { ok: false };
+        // Never update without a safety copy; abort if the backup fails.
+        try { await invoke("backup_before_update"); }
+        catch (error) { emit("update-status", { status: "error", message: `Backup vor dem Update fehlgeschlagen: ${String(error)}` }); return { ok: false }; }
         if (dist.store) { await invoke("open_store"); return { ok: true }; }
-        if (!pending) return { ok: false };
-        try { await pending.install(); await relaunch(); return { ok: true }; }
+        try { await pending!.install(); await relaunch(); return { ok: true }; }
         catch (error) { emit("update-status", { status: "error", message: String(error) }); return { ok: false }; }
       }
       default: throw new Error(`Unknown desktop operation: ${channel}`);
