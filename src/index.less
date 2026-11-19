@@ -527,6 +527,13 @@ html[data-theme="dark"] .table .ant-table-tbody > tr.row-warning > td.ant-table-
   }
 }
 
+@media (max-width: 900px) {
+  /* Header actions + window controls must fit the 800px minimum window width. */
+  .app-header-actions .ant-btn {
+    padding-inline: 8px;
+  }
+}
+
 @media (max-width: 720px) {
   .app-header {
     align-items: flex-start;
