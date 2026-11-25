@@ -202,11 +202,23 @@ html[data-theme="dark"] body {
 }
 
 .stat-card {
-  transition: box-shadow 0.2s ease;
+  position: relative;
 }
 
-.stat-card:hover {
+/* Fade a fixed shadow so the blur does not have to change on each frame. */
+.stat-card::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
   box-shadow: 0 3px 10px rgba(0, 0, 0, 0.07);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+}
+
+.stat-card:hover::after {
+  opacity: 1;
 }
 
 .stat-card .ant-statistic-content-value {
@@ -331,7 +343,7 @@ html[data-theme="dark"] .table .ant-table-thead .ant-table-cell-fix-right {
   background: #1d1d1d !important;
 }
 
-.table .ant-table-tbody > tr:nth-child(even):not(.row-warning) > td {
+.table .ant-table-tbody > tr:nth-child(even):not(.row-warning) {
   background-color: color-mix(
     in srgb,
     var(--ant-color-fill-quaternary) 65%,
@@ -382,11 +394,11 @@ html[data-theme="dark"] .table .ant-table-tbody > tr.row-warning > td.ant-table-
   background: var(--ant-color-error-bg-hover) !important;
 }
 
-/* Keep row highlighting in CSS so moving the pointer does not update every cell. */
-.table .ant-table-tbody > tr.ant-table-row:not(.row-warning):hover > td,
-.table .ant-table-tbody > tr.ant-table-row:not(.row-warning):hover > td.ant-table-cell-fix-left,
-.table .ant-table-tbody > tr.ant-table-row:not(.row-warning):hover > td.ant-table-cell-fix-right {
-  background: color-mix(in srgb, var(--ant-color-bg-container, #fff) 94%, var(--ant-color-text, #000) 6%) !important;
+/* Paint the highlight on the row. Sticky cells need their own opaque fill
+   because they scroll over the other cells. */
+html .table .ant-table-tbody > tr.ant-table-row:not(.row-warning):hover,
+html .table .ant-table-tbody > tr.ant-table-row:not(.row-warning):hover > td:is(.ant-table-cell-fix-left, .ant-table-cell-fix-right) {
+  background-color: color-mix(in srgb, var(--ant-color-bg-container, #fff) 94%, var(--ant-color-text, #000) 6%) !important;
 }
 
 *:focus-visible {

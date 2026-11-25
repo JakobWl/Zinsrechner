@@ -66,6 +66,10 @@ export function saveDocument(name: string, content: string): Promise<void> {
   return run;
 }
 
+async function flushDocumentSaves() {
+  while (activeSaves.size) await Promise.all(activeSaves.values());
+}
+
 async function updateAvailable() {
   try {
     const dist = await invoke<Distribution>("distribution_info");
@@ -116,6 +120,17 @@ export const desktopBridge: DesktopBridge = {
       case "get-backup-settings": return invoke("get_backup_settings");
       case "choose-backup-folder": return invoke("choose_backup_dir");
       case "backup-now": return invoke("backup_before_update");
+      case "get-data-folder": return invoke("get_data_dir");
+      case "choose-data-folder":
+        await flushDocumentSaves();
+        return invoke("choose_data_dir");
+      case "export-data":
+        await flushDocumentSaves();
+        return invoke("export_data");
+      case "import-data":
+        await flushDocumentSaves();
+        if (await invoke<boolean>("import_data")) window.location.reload();
+        return;
       case "check-update-available": return updateAvailable();
       case "check-for-updates":
         if (!downloading) downloading = downloadUpdate().finally(() => { downloading = null; });

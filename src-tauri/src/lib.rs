@@ -1,7 +1,6 @@
 mod storage;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-#[cfg(feature = "e2e")]
 use std::path::PathBuf;
 use std::{collections::HashMap, fs, sync::{atomic::{AtomicUsize, Ordering}, Mutex}};
 use tauri::{Manager, State, WebviewUrl, WebviewWindowBuilder};
@@ -107,12 +106,80 @@ async fn choose_backup_dir(app: tauri::AppHandle) -> Result<Option<BackupSetting
         Ok(Some(BackupSettings { dir: dir.to_string_lossy().into(), configured: true }))
     }).await.map_err(|e| e.to_string())?
 }
+fn data_settings_file(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(app.path().app_config_dir().map_err(|e| e.to_string())?.join("data-settings.json"))
+}
+
 #[tauri::command]
-async fn backup_before_update(app: tauri::AppHandle, data: State<'_, Storage>) -> Result<String, String> {
-    let root = data.root.clone();
+async fn get_data_dir(data: State<'_, Storage>) -> Result<String, String> {
+    Ok(data.root.lock().map_err(|e| e.to_string())?.to_string_lossy().into())
+}
+
+#[tauri::command]
+async fn choose_data_dir(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let data = app.state::<Storage>();
+        let start = data.root.lock().map_err(|e| e.to_string())?.clone();
+        let mut dialog = app.dialog().file().set_title("Datenordner wählen");
+        if start.is_dir() { dialog = dialog.set_directory(&start); }
+        let Some(picked) = dialog.blocking_pick_folder() else { return Ok(None); };
+        let destination = picked.into_path().map_err(|e| e.to_string())?;
+        let mut root = data.root.lock().map_err(|e| e.to_string())?;
+        if fs::canonicalize(&*root).map_err(|e| e.to_string())? != fs::canonicalize(&destination).map_err(|e| e.to_string())? {
+            if let Some(error) = &app.state::<DesktopState>().migration_error { return Err(error.clone()); }
+            storage::relocate(&root, &destination, &data_settings_file(&app)?)?;
+            *root = destination;
+        }
+        Ok(Some(root.to_string_lossy().into()))
+    }).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn export_data(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(picked) = app.dialog().file().set_title("Daten exportieren")
+            .set_file_name("Zinsrechner-Daten.json").add_filter("JSON", &["json"]).blocking_save_file()
+        else { return Ok(None); };
+        let path = picked.into_path().map_err(|e| e.to_string())?;
+        // Reserve application file names even when saving into a different folder.
+        let name = path.file_name().and_then(|name| name.to_str()).ok_or("Ungültiger Dateiname")?.trim_end_matches([' ', '.']);
+        if storage::DOCUMENTS.iter().chain([".zinsrechner-import.json", "data-settings.json", "backup-settings.json", ".window-state.json"].iter())
+            .any(|reserved| name.eq_ignore_ascii_case(reserved)) {
+            return Err("Bitte einen anderen Dateinamen für den Export wählen.".into());
+        }
+        if let Some(error) = &app.state::<DesktopState>().migration_error { return Err(error.clone()); }
+        let data = app.state::<Storage>();
+        let root = data.root.lock().map_err(|e| e.to_string())?;
+        storage::recover_import(&root)?;
+        storage::replace_file(&path, &storage::bundle(&root, &app.package_info().version.to_string())?)?;
+        Ok(Some(path.to_string_lossy().into()))
+    }).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn import_data(app: tauri::AppHandle) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(picked) = app.dialog().file().set_title("Datenimport oder Backup auswählen")
+            .add_filter("Zinsrechner-Daten", &["json", "bak"]).blocking_pick_file()
+        else { return Ok(false); };
+        let path = picked.into_path().map_err(|e| e.to_string())?;
+        let raw = fs::read_to_string(path).map_err(|e| e.to_string())?;
+        let data = app.state::<Storage>();
+        let root = data.root.lock().map_err(|e| e.to_string())?;
+        if let Some(error) = &app.state::<DesktopState>().migration_error { return Err(error.clone()); }
+        storage::import(&root, &raw, &app.package_info().version.to_string())?;
+        Ok(true)
+    }).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn backup_before_update(app: tauri::AppHandle) -> Result<String, String> {
     let version = app.package_info().version.to_string();
     tauri::async_runtime::spawn_blocking(move || {
         let dir = backup_dir(&app)?;
+        let data = app.state::<Storage>();
+        let root = data.root.lock().map_err(|e| e.to_string())?;
+        storage::recover_import(&root)?;
         storage::backup(&root, &dir, &version).map(|p| p.to_string_lossy().into())
     }).await.map_err(|e| e.to_string())?
 }
@@ -199,7 +266,10 @@ pub fn run() {
             candidates.extend(storage::legacy_candidates());
             #[cfg(feature = "e2e")]
             let candidates = std::env::var_os("ZINSRECHNER_E2E_LEGACY_DIR").map(|p| vec![PathBuf::from(p)]).unwrap_or(candidates);
-            let migration = storage::migrate(&root, &candidates);
+            let configured: Option<PathBuf> = storage::read_optional(&data_settings_file(app.handle())?)?
+                .map(|raw| serde_json::from_str(&raw)).transpose()?;
+            let migration = if configured.is_some() { Ok(None) } else { storage::migrate(&root, &candidates) };
+            let root = configured.unwrap_or(root);
             // Window-state plugin handles subsequent launches; import Electron bounds once.
             if !app.path().app_config_dir()?.join(".window-state.json").exists() {
                 if let Ok(Some(source)) = &migration {
@@ -215,7 +285,7 @@ pub fn run() {
                     }
                 }
             }
-            app.manage(Storage { root, lock: Mutex::new(()) });
+            app.manage(Storage { root: Mutex::new(root) });
             app.manage(DesktopState { prints: Mutex::new(HashMap::new()), next_print: AtomicUsize::new(1), migration_error: migration.err() });
             Ok(())
         })
@@ -226,6 +296,6 @@ pub fn run() {
                 }
             }
         })
-        .invoke_handler(tauri::generate_handler![backup_before_update, get_backup_settings, choose_backup_dir, read_document, write_document, save_export, create_print_window, print_content, print_window, distribution_info, update_metadata, open_store, open_external])
+        .invoke_handler(tauri::generate_handler![backup_before_update, get_backup_settings, choose_backup_dir, get_data_dir, choose_data_dir, export_data, import_data, read_document, write_document, save_export, create_print_window, print_content, print_window, distribution_info, update_metadata, open_store, open_external])
         .run(tauri::generate_context!()).expect("Could not run Zinsrechner");
 }

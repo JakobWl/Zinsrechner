@@ -13,6 +13,7 @@ import {
   Button,
   Card,
   DatePicker,
+  Divider,
   Dropdown,
   Form,
   Input,
@@ -272,7 +273,7 @@ export function AppLayout({
   themeMode?: "system" | "light" | "dark";
   isDarkMode?: boolean;
 }) {
-  const { message } = AntApp.useApp();
+  const { message, modal } = AntApp.useApp();
   const [loadError, setLoadError] = useState<string | null>(null);
   const {
     token: { colorErrorBgHover },
@@ -295,11 +296,40 @@ export function AppLayout({
   const [backupSettings, setBackupSettings] = useState<{ dir: string; configured: boolean } | null>(null);
   const [backupBusy, setBackupBusy] = useState(false);
   const [backupNotice, setBackupNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [dataDir, setDataDir] = useState<string | null>(null);
+  const [dataBusy, setDataBusy] = useState(false);
   useEffect(() => {
     if (!settingsOpen) return;
     setBackupNotice(null);
     window.desktop?.invoke("get-backup-settings").then(setBackupSettings).catch(() => setBackupSettings(null));
-  }, [settingsOpen]);
+    window.desktop?.invoke("get-data-folder").then(setDataDir).catch((error) => message.error(String(error)));
+  }, [settingsOpen, message]);
+  const handleDataAction = async (action: "choose-data-folder" | "export-data" | "import-data") => {
+    setDataBusy(true);
+    try {
+      const path = await window.desktop?.invoke(action);
+      if (path && action === "choose-data-folder") {
+        setDataDir(path);
+        message.success("Datenordner geändert.");
+      }
+      if (path && action === "export-data") message.success("Datenexport gespeichert.");
+    } catch (error) {
+      message.error(String(error));
+    } finally {
+      setDataBusy(false);
+    }
+  };
+  const confirmDataImport = () => {
+    setSettingsOpen(false);
+    modal.confirm({
+      title: "Zinsrechner-Daten importieren?",
+      content: "Die ausgewählte Datei ersetzt die Konten, Prognose und Historie-Gruppen. Vorher wird eine Sicherung im aktuellen Datenordner gespeichert.",
+      okText: "Datei auswählen…",
+      cancelText: "Abbrechen",
+      okButtonProps: { danger: true },
+      onOk: () => handleDataAction("import-data"),
+    });
+  };
   const handleChooseBackupFolder = async () => {
     const result = await window.desktop?.invoke("choose-backup-folder");
     if (result) setBackupSettings(result);
@@ -1915,6 +1945,15 @@ export function AppLayout({
                       <Button size="small" type="primary" loading={backupBusy} onClick={handleBackupNow}>Jetzt sichern</Button>
                     </Space>
                     {backupNotice && <Alert showIcon type={backupNotice.type} message={backupNotice.text} className="settings-hint" />}
+                    <Divider style={{ margin: "8px 0" }} />
+                    <Typography.Text strong>App-Daten</Typography.Text>
+                    <Typography.Text type="secondary">Aktueller Datenordner</Typography.Text>
+                    <div className="settings-path" title={dataDir ?? undefined}>{dataDir ?? "…"}</div>
+                    <Space className="settings-actions" wrap>
+                      <Button size="small" disabled={dataBusy} onClick={() => handleDataAction("choose-data-folder")}>Datenordner ändern…</Button>
+                      <Button size="small" disabled={dataBusy} onClick={() => handleDataAction("export-data")}>Exportieren…</Button>
+                      <Button size="small" disabled={dataBusy} onClick={confirmDataImport}>Importieren…</Button>
+                    </Space>
                   </>
                 ) : (
                   <Typography.Text type="secondary">Nur in der Desktop-App verfügbar.</Typography.Text>
