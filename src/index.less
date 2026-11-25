@@ -996,6 +996,105 @@ html[data-theme="dark"] .investments-scroll-fullscreen {
   color: var(--ant-color-text-tertiary, rgba(0, 0, 0, 0.45));
 }
 
+.investments-grand-total {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 16px;
+  border-radius: 4px;
+  background: #6487ae;
+  color: #111;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.investments-grand-total-count {
+  margin-inline-start: auto;
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.investments-grand-total-value {
+  min-width: 140px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Hidden copy of the tables, used to measure their natural size. */
+.investments-measure {
+  position: fixed;
+  top: 0;
+  left: -20000px;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.investments-measure .investments-group {
+  width: max-content;
+  margin-bottom: 0;
+}
+
+.investments-sheet-frame {
+  position: relative;
+  flex: 0 0 auto;
+  margin: 0 auto;
+}
+
+.investments-sheet {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-sizing: border-box;
+  padding: 30px; /* ≈ 8 mm page margin */
+  overflow: hidden;
+  background: #fff;
+  color: #111;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.18);
+  transform-origin: top left;
+}
+
+.investments-sheet-header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: baseline;
+  justify-content: space-between;
+  padding-bottom: 6px;
+  border-bottom: 2px solid #6487ae;
+  font-size: 13px;
+}
+
+.investments-sheet-title {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.investments-sheet-area {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.investments-sheet-columns {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.investments-sheet-column {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+}
+
+/* The sheet is paper: keep it light even in dark mode. */
+html[data-theme="dark"] .investments-sheet {
+  color-scheme: light;
+}
+
 @media (max-width: 720px) {
   .investments-scroll {
     padding: 12px;

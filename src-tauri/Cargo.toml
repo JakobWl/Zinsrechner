@@ -1,6 +1,6 @@
 [package]
 name = "zinsrechner"
-version = "2.0.10"
+version = "2.0.11"
 description = "WiDev Zinsrechner"
 authors = ["Jakob Winkler"]
 edition = "2021"
